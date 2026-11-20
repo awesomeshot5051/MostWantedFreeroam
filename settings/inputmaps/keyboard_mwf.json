@@ -1,0 +1,16 @@
+{
+ "bindings": [
+  {
+   "control": "alt m",
+   "action": "toggleMwfOptions"
+  },
+  {
+   "control": "alt g",
+   "action": "toggleMwfGarage"
+  },
+  {
+   "control": "alt k",
+   "action": "toggleMwfAchievements"
+  }
+ ]
+}

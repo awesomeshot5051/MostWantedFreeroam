@@ -1,0 +1,26 @@
+{
+ "toggleMwfOptions": {
+  "cat": "gameplay",
+  "order": 90,
+  "ctx": "tlua",
+  "onDown": "extensions.mwf_core.toggleOptions()",
+  "title": "Most Wanted Freeroam: options",
+  "desc": "Opens the Most Wanted Freeroam options window (hide civilian traffic during chases, spawn smoothing)"
+ },
+ "toggleMwfGarage": {
+  "cat": "gameplay",
+  "order": 91,
+  "ctx": "tlua",
+  "onDown": "extensions.mwf_core.toggleGarage()",
+  "title": "Most Wanted Freeroam: pit stop garage",
+  "desc": "Opens or closes the pit stop garage window (buy cars, only inside a gas station or garage during a chase)"
+ },
+ "toggleMwfAchievements": {
+  "cat": "gameplay",
+  "order": 92,
+  "ctx": "tlua",
+  "onDown": "extensions.mwf_core.toggleAchievements()",
+  "title": "Most Wanted Freeroam: achievements",
+  "desc": "Opens or closes the Most Wanted Freeroam achievements window"
+ }
+}
