@@ -1,4 +1,4 @@
-# Most Wanted Freeroam  (version 1.0.0)
+# Most Wanted Freeroam  (version 2.0.0)
 
 Turns the vanilla police chase in BeamNG freeroam into a continuous, escalating **Most Wanted**-style pursuit:
 ten heat levels, a bounty, a "reset bar" you spend on weapons and vehicle resets, pit stops at gas stations and
@@ -7,6 +7,8 @@ you escape (or get busted), and the next one starts fresh.
 
 This is a **standalone rewrite**. It does not use or depend on the *Most Wanted Mission* mod's code (that mod is only
 used as a design reference, and optionally for a few vehicle configs, see [Dependencies](#dependencies)).
+
+> **Changes:** every release, with the technical details, is listed in the [changelog](CHANGELOG.md).
 
 > **Status:** all features, including heat 7-10, armed units, KARR / KITT, the garage pause, POI pit stops, police sensitivity,
 > achievements and RLS mode, have been tested in-game by the author. Known limits are listed under
@@ -22,29 +24,32 @@ used as a design reference, and optionally for a few vehicle configs, see [Depen
 4. [Heat levels and escalation](#heat-levels-and-escalation)
 5. [Bounty](#bounty)
 6. [The reset bar](#the-reset-bar)
-7. [Weapons cost reset bar](#weapons-cost-reset-bar)
-8. [Resetting your car (Crash Breaker)](#resetting-your-car-crash-breaker)
-9. [Pit stops (gas stations and garages)](#pit-stops-gas-stations-and-garages)
+7. [Style bonuses](#style-bonuses)
+8. [Weapons cost reset bar](#weapons-cost-reset-bar)
+9. [Resetting your car (Crash Breaker)](#resetting-your-car-crash-breaker)
+10. [Pit stops (gas stations and garages)](#pit-stops-gas-stations-and-garages)
    - [Pit stop economy (cars and parts cost bounty)](#pit-stop-economy-cars-and-parts-cost-bounty)
    - [RLS career compatibility](#rls-career-compatibility)
-10. [What is locked during a chase](#what-is-locked-during-a-chase)
-11. [The HUD](#the-hud)
-12. [Options and performance](#options-and-performance)
-13. [Controls](#controls)
+11. [What is locked during a chase](#what-is-locked-during-a-chase)
+12. [The HUD](#the-hud)
+   - [Minimap app with a heat ring](#minimap-app-with-a-heat-ring)
+   - [On foot](#on-foot)
+13. [Options and performance](#options-and-performance)
+14. [Controls](#controls)
     - [Achievements](#achievements)
-14. [Files in this mod](#files-in-this-mod)
-15. [Changes made to other mods](#changes-made-to-other-mods)
-16. [Known limitations](#known-limitations)
-17. [Troubleshooting and logs](#troubleshooting-and-logs)
-18. [Tuning](#tuning)
-19. [Uninstalling and reverting](#uninstalling-and-reverting)
-20. [Developer notes](#developer-notes) (architecture, hooks, adding modules)
+15. [Files in this mod](#files-in-this-mod)
+16. [Changes made to other mods](#changes-made-to-other-mods)
+17. [Known limitations](#known-limitations)
+18. [Troubleshooting and logs](#troubleshooting-and-logs)
+19. [Tuning](#tuning)
+20. [Uninstalling and reverting](#uninstalling-and-reverting)
+21. [Developer notes](#developer-notes) (architecture, hooks, adding modules)
 
 ---
 
 ## Quick start
 
-1. Keep this folder in `mods/unpacked/most_wanted_freeroam/` (or zip its contents as a normal mod).
+22. Keep this folder in `mods/unpacked/most_wanted_freeroam/` (or zip its contents as a normal mod).
 2. Optionally install **Weapon Panel** and **Universal Weapons** as they are. This mod gates them by itself, without
    changing a single one of their files (see [How the weapon gating works](#how-the-weapon-gating-works)).
 3. Start a freeroam map with **traffic enabled and police in the traffic** (the vanilla police option).
@@ -84,7 +89,10 @@ locks, extra police waves and roadblock props.
   jbeam keys). If a future update renames them, gating for that mod stops working until this mod is adjusted (weapons
   then just stay free).
 - If you run the Most Wanted Mission mod alongside this one, avoid running its mission and a freeroam chase at the same
-  time. Interaction between the two has not been tested.
+  time. Interaction between the two has not been tested. Its **Most Wanted: Minimap** app (heat number with a flame, and the heat
+  ring) follows this mod's heat during a chase: `compat/mwm.lua` wraps `mathkuro_mostWantedMission.getPursuitData` at run time (no
+  file of that mod is edited) and answers with this mod's heat, progress to the next heat and "police can see you" flag while one
+  of our chases is on. Outside a chase the original function answers, and without that mod nothing happens.
 
 ---
 
@@ -133,7 +141,7 @@ Heat only goes up during a chase. Every level up shows a toast naming what is ar
   | 2 | Fullsize police, van police, roamer sheriff | 2 |
   | 3 | Bastion police, sunburst police | 2 |
   | 4 | Unmarked bastion, unmarked roamer, sunburst interceptor | 3 |
-  | 5 | Scintilla interceptor, **police vans**, unmarked roamer | 4 |
+  | 5 | Scintilla interceptor, **police vans**, unmarked roamer, **armored police truck** (`md_60_armored_police`) | 5 |
   | 6 | `mwm_interceptor` bastion / scintilla, **US semi** x2 | 4 |
   | 7 | `mwm_interceptor` roamer / scintilla, **US semi** x2 | 4 |
   | 8 | **Armed** minigun hopper, 50cal vivace, US semi x2, plus **KARR** | 4 + 1 |
@@ -238,6 +246,18 @@ physics spikes from instantly filling the bar.
 
 ---
 
+## Style bonuses
+
+Extra bounty during a chase, shown in the bounty feed (the live drift counter is shown above it):
+
+| Bonus | Pays |
+|---|---|
+| Drift | 10 x a Forza-style drift counter (not vanilla's, which is far less sensitive): a drift starts at about 10 degrees of slip above 16 mph, scores by angle and speed, and a combo (up to x5) grows with time and with every change of direction. You can straighten out for 1 s without losing it. It pays when the drift ends, and a **spinout** pays what you had. Hitting something forfeits it. Turning more than 270 degrees in one drift (circles, donuts) cuts the rate to almost nothing and stops the combo growing, repeats pay a little less each time, and one drift pays at most $25,000. |
+| Near miss | $250, passing a car (traffic or police) closely at speed without touching it. Back-to-back near misses within 5 s chain: +50% per link, up to 8 links. |
+| Trading paint | $300, a glancing side-swipe at speed. Chains the same way. Head-on hits keep paying the normal "hit" bounty. |
+
+---
+
 ## Weapons cost reset bar
 
 **Only while a chase is active.** Outside a chase, all weapons are free and unlimited, exactly as in the original mods.
@@ -246,8 +266,8 @@ physics spikes from instantly filling the bar.
 |---|---|
 | **Weapon Panel**: every button | 1 slot per use (Chain Missile charges once per launch) |
 | **Weapon Panel**: **EMP** | **all 3 slots** (it can hit several cars at once) |
-| **Universal Weapons**, machine guns (50cal, minigun) | 1 slot = **100 rounds** |
-| **Universal Weapons**, big guns (M242 autocannon, howitzer) | 1 slot = **10 rounds** |
+| **Universal Weapons**, machine guns (50cal, minigun) | 1 slot = **40 rounds** |
+| **Universal Weapons**, big guns (M242 autocannon, howitzer) | 1 slot = **5 rounds** |
 
 - **Weapons also cost bounty**, on top of the bar. Like pit stop spending, this **never lowers your heat**:
 
@@ -258,8 +278,8 @@ physics spikes from instantly filling the bar.
   | EMP | $3,000 |
   | Tire Pop | $500 |
   | Throttle / Brake / Steering / Parking Brake lock | $400 |
-  | Universal Weapons machine gun, per slot (100 rounds) | $1,000 |
-  | Universal Weapons big gun, per slot (10 rounds) | $2,000 |
+  | Universal Weapons machine gun, per slot (40 rounds) | $1,000 |
+  | Universal Weapons big gun, per slot (5 rounds) | $2,000 |
 
   If your wallet is too low the weapon does not fire.
 - With an empty bar, nothing fires: no shot, no muzzle sound.
@@ -273,7 +293,7 @@ physics spikes from instantly filling the bar.
   success, so a cooldown or a "No Target" result costs nothing.
 - Only the **player's own** gun draws from the bar. Guns on other vehicles (e.g. AI turrets) are free.
 - While your car has a Universal Weapons gun during a chase, a small **AMMO window** appears just above the main HUD showing
-  `rounds / capacity` (for example `73 / 100` for a machine gun, `4 / 10` for a big gun) with a bar. It turns red at 0.
+  `rounds / capacity` (for example `29 / 40` for a machine gun, `4 / 5` for a big gun) with a bar. It turns red at 0.
 - A **real reset** (the Crash Breaker) empties every Universal Weapons gun on your car back to 0 rounds, so they must be
   paid for again.
 - Weapon Panel hits pay bounty (table above). The mod works out the target itself (the nearest vehicle ahead of you, or
@@ -345,7 +365,12 @@ option (on by default, Alt+M) makes some from the game's points of interest (spa
   facilities are never replaced or moved.
 - If both are missing, the POIs alternate garage / gas station. If only one is missing, every other POI becomes that kind.
 - POIs within 150 m of another stop are skipped, and generated stops have a 12 m trigger radius.
-- Generated stops have no marker on the map or in the world. They behave exactly like real ones (repair, garage UI, pause).
+- **Big map labels:** a generated stop is a plain POI on the big map, so there is nothing to tell a made-up garage from a made-up gas
+  station. The game collects the big map's POIs through the `onGetRawPoiListForLevel` hook; this mod's implementation gives the POIs it
+  turned into pit stops the game's own `poi_garage_2_round` / `poi_fuel_round` icon and a `Garage: ` / `Gas station: ` prefix on their name
+  (`world/pits.lua`). Real garages and gas stations keep their own icons and are never touched. About 4 s after a level loads the mod works
+  out which POIs it will use, asks the game to rebuild its POI list (`gameplay_rawPois.clear()`) and labels the rebuilt list directly (the pin icon and the icon on the big map's card), then re-checks every 3 s in case something else rebuilds it. Nothing
+  is labelled in an RLS career or with the option off. There is no marker in the 3D world, only on the map.
 - The log line `fallback pit stops from POIs (N POIs, M usable): X garages, Y gas stations added` says what was made.
 
 ### Pit stop economy (cars and parts cost bounty)
@@ -362,13 +387,29 @@ pay for modifications, so you cannot hop from garage to garage building the ulti
 - **Prices:** a share of each car's real in-game value. The default is **50%** (the "Price factor" slider in the options
   window goes from 10% to 100%). Prices are clamped to **$1,500 minimum and $60,000 maximum**, so cheap cars are not free
   and supercars are not out of reach forever. Part prices use the same factor, capped at $20,000 per part.
-- **Garage window (only in garages):** it opens by itself when you enter a garage (toggle with **Alt+G**) and closes
-  when you leave. Same dark/cyan theme as the HUD. It has three separate screens so nothing is overwhelming:
-  - **Hub:** two buttons, **Vehicles** and **Parts**, plus **Leave garage**.
-  - **Vehicles:** shows **only the cars you can afford right now**, most valuable first, with a search box and a Buy
-    button. A line at the bottom says how many more cars need a bigger bounty. Only the first 50 matches are shown;
-    use the search to narrow it down. The first time it opens the car list is built, which can take a moment.
-  - **Parts:** an explanation and a button that opens the game's normal parts configurator.
+- **Garage shop (only in garages):** it opens by itself when you enter a garage (toggle with **Alt+G**) and closes
+  when you leave. It is a real game UI page (Vue, in `ui/ui-vue/mods/most_wanted_freeroam`) laid out like the RLS
+  computer, except you pay the listed price: there is no negotiating.
+  - **Tuning:** every tuning variable the game exposes for the car (suspension, tyre pressure, gear ratios, boost, ...), grouped
+    by category and sub-category like the game's own tuning screen, with a slider and - / + buttons per setting, a reset-to-default
+    button and a search box. Changes are collected and applied together with **Apply tune** (the car is rebuilt, which keeps the
+    chase going the same way a parts purchase does). **Undo changes** drops the edits; **Reset to the car's defaults** puts every
+    variable back to the car's jbeam values. **Saved tunes** keep a named snapshot per car model in `/settings/mwf_tunes.json`
+    (Save, Load into the edit list, Delete), the same idea as RLS's saved tunes. Tuning is free: it only changes variables on the
+    car you already have, never its parts. Not available in an RLS career (the garage is off there; use RLS's own tuning).
+  - **Search:** the vehicle shop and the parts shop both have a search box. In the parts shop it searches whatever list is
+    showing: at the top level every slot of every category at once (type "turbo", "tire", ...), inside a category its
+    slots, inside a slot its parts.
+  - **Controller:** the whole page works with a controller using the game's normal UI navigation (D-pad / stick to move, A to
+    select, B to step back, the on-screen keyboard for the search boxes). Nothing opens the menus by itself on a controller:
+    bind **Toggle garage / options / achievements** (they are in the controls menu under this mod) to whatever you like.
+  - **Hub:** three tiles, **Vehicle Shop**, **Parts Shop** and **Tuning**, plus **Leave garage**.
+  - **Vehicle Shop:** search, brand filter, sort (price, power, name) and an "Affordable only" switch (off by default). The list is paged, 12 cars per page. Each listing shows the
+    photo, name, price and key specs; click one for the detail page (full specs, price, wallet after purchase) and a
+    **Buy** button with a confirm step. Your current car is swapped for it.
+  - **Parts Shop:** categories, then slots, then the parts for that slot with their prices. Add parts to the **cart** on the
+    right, check the total, and buy them together.
+  - If the page fails to load, the garage closes itself after 4 seconds (so the game is never left paused) and the log says why.
 - **Parts:** each part you change costs its value x the price factor. A change you cannot afford is **refused** with a
   toast (the vanilla list itself cannot be filtered, so you find out when you try). Parts that stay the same are free.
 - **No loopholes:** while pit stop costs are on, the vanilla vehicle selector and car switching stay locked, and any
@@ -392,7 +433,7 @@ something degrades to "no charge / no payout" with a log line instead of an erro
 | Bounty | Your spendable wallet | **Drastically reduced**: every bounty gain, weapon price and heat threshold is multiplied by **0.1**, so heat pacing stays the same but the numbers are small. Pursuit pay is **+$2/s per heat level, max $20/s** (heat 1 = $2/s, heat 10 = $20/s). The bounty is still not money by itself; it is what the escape payout is a share of. |
 | Payout | None | **Escaping** pays a share of the bounty: **8% at the start, rising to 25% at Most Wanted Criminal level 6** (see below). Capped at $3,000, nothing under $300 bounty, and each payout in the last 20 minutes takes 25% off the next (down to 25% of normal). Getting busted pays nothing. The HUD shows the percentage, the estimate and your level. |
 | Crash Breaker reset | Free at heat 1-2, $5,000 bounty from heat 3 | **Real money, at every heat**, like an insurance claim (see below). Still needs a bar slot. |
-| Pit stops | Repair, garage window, car and part prices | **Off.** No repair, no garage window, nothing unlocked. In RLS you own the garage and change cars and parts at its computer. |
+| Pit stops | Repair, garage window, car and part prices | **Off.** No repair, no garage window, nothing unlocked. In RLS you own the garage and change cars and parts at its computer. A repair there during a chase is made **instant** (RLS still charges the quote and files the claim), the chase is **frozen while the RLS computer is open**, and it carries on in the repaired car. |
 | Weapons | Bar slot + bounty | Bar slot + bounty, with the weapon prices scaled by the same 0.1 (never real money) |
 | Heat, units, achievements, sensitivity | as described | Unchanged |
 
@@ -422,7 +463,7 @@ milestone shows up the next time a career is loaded.
   inventory car at all (a borrowed or spawned car), a flat $1,500.
 - **Private**: the car's current **repair estimate**, with a floor of **$2,500**.
 
-The money is taken with RLS's own payment function (category `insurance`, so it shows in your finance history as
+The charge is shown as a toast and as a red `-$N` line in the bounty feed. The money is taken with RLS's own payment function (category `insurance`, so it shows in your finance history as
 "Most Wanted: Crash Breaker reset"). If you cannot pay, the reset is refused with a toast. It does **not** file an actual
 insurance claim, so there is no driver-score penalty or accident record; it only charges the equivalent money.
 
@@ -441,7 +482,7 @@ Blocked inputs (via the game's input action filter):
 - Reset, home, recover-in-place and teleport actions (except teleport to last road, and the reset key / controller
   reset button, which are handled by the Crash Breaker as above)
 - Vehicle selector, parts selector, vehicle debug menu, vehicle switching
-- Free camera, drop-at-camera, walking mode, photo mode, track builder, editor
+- Free camera, drop-at-camera, photo mode, track builder, editor. Walking mode is blocked too, unless the **Get out of your car on foot** option is on (see below).
 - AI/traffic toggles, slow-motion controls, and the fun/cheat actions (boom, fire, boost, etc.)
 
 **Fast travel is blocked, the big map is not.** You can open the big map and set waypoints. The quick-travel button
@@ -467,16 +508,54 @@ ESCAPED / BUSTED banner). It follows a dark theme with cyan accents.
 The HUD is drawn with ImGui, so the game's single built-in font is used. Colours follow the supplied palette
 (`#00bfff` accent, `#e0e0e0` text, `#888` muted, `#00e676` good, `#ff5252` bad, `#9b30ff` purple, `#3b82f6` blue).
 
+### Minimap app with a heat ring
+
+`ui/modules/apps/MwfMinimap` is a UI app ("Most Wanted Freeroam: Minimap", add it from the apps menu like any other app). It is the game's
+own Navigation minimap (same code and drawing, see the header of its `app.vue`) with the heat shown around the outside, like the Most
+Wanted minimap:
+
+- a ring of ten segments around the minimap that fills with your bounty (segment *n* fills as you climb through heat *n*);
+- the heat number with a flame in the top-left corner (it pops when the heat goes up);
+- while a police car can see you the ring and the flame flash red / blue, on top of the game's own red / blue flashing minimap edge;
+  while the escape meter is winning (you are slipping away) the ring pulses orange.
+
+Use it **instead of** the stock Navigation app, not next to it (both ask the game to draw the minimap into their own box). The data comes
+from `mwf_core.getHeatHud()` (`ui/hud.lua`), polled four times a second.
+
+### On foot
+
+With the **Get out of your car on foot** option on, walking mode stays available during a chase. It is free.
+
+- Vanilla walking mode rules still apply: your car has to be almost stopped to get out, and you get into the car in front of
+  you the usual way. The chase carries over to your new body (and to the next car), the same hand-over a pit stop uses.
+- **Stamina:** sprinting drains it (about 8 s from full), walking or standing refills it (about 10 s, faster when standing
+  still). At zero the sprint keys are blocked until it is back to 40%. The HUD shows `ON FOOT   STAMINA |||||||...`.
+- **Busted on foot:** an arrest timer (1.5 s) fills while you are **surrounded** (3 or more police within 12 m with no gap wider
+  than 240 degrees around you), **cornered** (2 or more within 8 m while you are not sprinting) or **pinned** (a police car within
+  3.5 m while you are almost standing still). When it is full you are arrested like any other arrest. Break away (sprint, if you
+  have stamina) and it drains. The HUD shows `SURROUNDED!`. While you are on foot the log gets a `On foot: ...` status line every
+  3 seconds, which shows what the police around you are doing.
+- Vanilla's own arrest and escape rules keep running on foot too.
+- **Stealing traffic cars** (option **Steal traffic cars while on foot**, on by default): vanilla does not let you get into AI
+  traffic cars. Walk up to a civilian car (within 4 m, driving slower than 8 m/s) and press the walking-mode key: the car is
+  taken out of traffic, its AI is switched off and you get in. Pays a small bounty ($500). **Police cars can be carjacked too** (reach 5 m,
+  moving slower than 12 m/s, pays $1,500): a unit this mod spawned is released from the chase's unit lists first, so it is never retired, replaced or deleted
+  while you drive it. Only KARR and KITT cannot be stolen. The approach is borrowed from the *RLS Career Carjacking* add-on. It is **off in an RLS career** and
+  whenever any career (vanilla or RLS) is active, since RLS and its add-on do this themselves.
+
 ---
 
 ## Options and performance
 
-Open the options window with **Alt+M** (or run `mwf_core.toggleOptions()` in the console). Settings are saved to
+Open the options page with **Alt+M** (or a controller button you bind to it, or run `mwf_core.toggleOptions()` in the console). It is a game UI page, so it works with a controller: move with the D-pad / stick, A to change a row, B to close. Settings are saved to
 `/settings/mwf_options.json`.
 
 | Option | Default | What it does |
 |---|---|---|
 | Hide civilian traffic during chases | Off | While you are chased, civilian traffic is hidden and cannot respawn. Police are not affected. Civilians return, a couple per frame, when the chase ends (or as soon as you switch the option off). Less load, fewer hitches. |
+| **Weapons can start a chase** | **On** | Using a weapon (Weapon Panel, or Universal Weapons guns) on a police car or a civilian car counts as an offense, but only one a police car can see you do (the same visibility check vanilla uses for every offense). Weapons panel hits are matched to the nearest car in front of you; guns to a car in your line of fire. |
+| **Get out of your car on foot** | **On** | During a chase you can stop, press the walking-mode key to get out, run to another car and get in. See [On foot](#on-foot). Takes effect from the next chase. |
+| **Steal traffic cars while on foot** | **On** | While on foot in a chase, walk up to a civilian car and press the walking-mode key to carjack it (see [On foot](#on-foot)). Not used in an RLS career. |
 | Smooth spawning | On | If the frame rate is already low (under about 22 fps), new unit spawns are held back, up to 8 seconds. |
 | Seconds between unit spawns | 1.5 | Spacing between extra-unit spawns (0.5 to 6). |
 | Wave size | 100% | Scales how many units and props each wave brings (25% to 100%). |
@@ -528,14 +607,14 @@ under "Most Wanted Freeroam: ..." if they clash with another mod.
 
 ### Achievements
 
-The mod has its own **in-game achievements**: 28 of them, with an unlock banner at the top of the screen and a toast, and a
+The mod has its own **in-game achievements**: 33 of them, with an unlock banner at the top of the screen and a toast, and a
 list with progress bars in the achievements window (**Alt+K**, or the button in the options window). They are tracked
-everywhere, including outside chases.
+everywhere, including outside chases, but they only unlock during a chase: a goal reached outside one waits until the next chase starts.
 
 **Why not Steam achievements?** Steam (and Epic) achievements are a fixed list defined by the game's developer inside the
 game's Steamworks configuration. A mod cannot add to that list, and BeamNG's own achievement system only unlocks that fixed
 list (the career milestones are separate and career-only). So these are the mod's own, saved to
-`/settings/mwf_achievements.json`. Delete that file to reset them.
+`/settings/mwf_achievements.json`. To reset them press **Reset achievements** (press twice to confirm) in the options page or the achievements page, or delete that file while the game is closed.
 
 | Achievement | Goal |
 |---|---|
@@ -561,12 +640,22 @@ list (the career milestones are separate and career-only). So these are the mod'
 | Spray and Pray | Take out 25 police cars with a gun |
 | Arms Dealer | Use 50 weapons during chases |
 | Tokyo Drift, Local Edition | Drift 5 km (3 miles) during chases |
+| Dodged a Missile | Near-miss a police car charging straight at you at 60 mph (97 km/h) or more |
+| Really Dodged a Missile | Same, at 100 mph (160 km/h) or more |
+| Living on the Edge | Get 100 near misses |
+| Nearly missing the near miss | Trade paint 100 times |
+| Highway to the Danger Zone | Stay above 100 mph (160 km/h) for 3 minutes in a row |
+
 | Wrong Way Wallace | Drive 2 km (1 mile) the wrong way during chases |
 | Pedal to the Metal | Drive 20 km (12 miles) above 200 km/h (125 mph) during chases |
 | Nine Lives (Plus One) | Use the Crash Breaker 10 times |
 | Trade-In Value: Mostly Smoke | Buy a car at a garage during a chase |
 | Cash Is Just a Number | Spend $100,000 of bounty at garages |
 | Quick Oil Change | Visit a garage at heat 5 or higher |
+
+Living on the Edge and Nearly missing the near miss pay $2,500 of bounty when they unlock, and Highway to the Danger Zone pays
+$5,000. In an RLS career those bounty amounts are scaled down like all bounty, and each one also pays real money ($300 / $300 /
+$500) and adds Most Wanted Criminal milestone points (3 / 3 / 5).
 
 **Units:** the distance and speed achievements follow the game's own unit setting (`uiUnitLength`, Options > User Interface). With
 imperial units the wording, the progress display and the goal itself change: drift 3 miles, drive 1 mile the wrong way, drive 12
@@ -592,6 +681,7 @@ unlock, at the end of a chase and when the extension unloads.
 ```
 most_wanted_freeroam/
   README.md                                      this technical readme
+  CHANGELOG.md                                   technical changes per version
   PUBLISHING_README.md                           plain-language readme for the mod page
   scripts/mostWantedFreeroam/modScript.lua       loads the extension and keeps it loaded
   lua/ge/extensions/mwf/
@@ -606,6 +696,8 @@ most_wanted_freeroam/
     chase/   session.lua                         chase start / end and the vanilla hooks
              pursuit.lua                         per-frame scoring, bounty awards, wreck payouts, heat changes
              bar.lua                             the reset bar (drift / wrong way / speeding)
+             style.lua                           style bonuses: drift, near miss, trading paint, missile dodges
+             onfoot.lua                          getting out of the car: stamina, busted on foot
              difficulty.lua                      heat scaling and police sensitivity
              escalation.lua                      spawning, reinforcements and clean-up of extra units and props
              breaker.lua                         Crash Breaker reset
@@ -613,20 +705,23 @@ most_wanted_freeroam/
              civilians.lua                       optional hiding of civilian traffic
     achievements/ tracker.lua                    unlock logic, stats, save / load of /settings/mwf_achievements.json
     compat/  rls.lua                             RLS Career Overhaul mode: reset charged as a claim, escape payout, pit stops off
+             mwm.lua                             makes the Most Wanted Mission minimap follow this mod's heat (runtime wrap, no file edited)
     world/   pits.lua                            gas stations, garages, POI fallback, repair, pursuit hand-over
     economy/ garage.lua                          wallet, prices, vehicle / parts guards, garage pause
              weapons.lua                         Weapon Panel wrapper, Universal Weapons slots, weapon bounty and costs
     ui/      theme.lua                           palette and ImGui drawing helpers
              hud.lua                             chase HUD and ammo window
-             garage_window.lua                   garage hub / vehicles / parts windows
-             options_window.lua                  options window
-             achievements_window.lua             achievements list (Alt+K) and unlock banner
+             garage_window.lua                   opens / closes the Vue garage shop and answers its data calls (shop*, incl. tuning)
+             options_window.lua                  options page (Lua side of MwfOptions.vue)
+             achievements_window.lua             achievements page (Lua side of MwfAchievements.vue, Alt+K) and the unlock banner
+  ui/ui-vue/mods/most_wanted_freeroam/           the Vue pages: index.js, MwfShop.vue (garage: vehicles, parts, tuning), MwfOptions.vue, MwfAchievements.vue
+  ui/modules/apps/MwfMinimap/                    the minimap app with the heat ring (app.json, app.vue, app.png)
   lua/vehicle/extensions/auto/mwfWeapons.lua     vehicle-side ammo gate for Universal Weapons (does nothing without them)
   lua/ge/extensions/core/input/actions/mwf.json  input actions for the options, garage and achievements windows
   settings/inputmaps/keyboard_mwf.json           default key bindings (Alt+M options, Alt+G garage, Alt+K achievements)
 ```
 
-Saved at runtime: `/settings/mwf_options.json` and `/settings/mwf_achievements.json`.
+Saved at runtime: `/settings/mwf_options.json`, `/settings/mwf_achievements.json` and `/settings/mwf_tunes.json` (saved garage tunes).
 
 ---
 
@@ -647,6 +742,8 @@ keeps it clear of the Weapon Panel's "DO NOT REUSE CODE" header.
   held trigger can fire one extra round or so when a gun runs dry.
 - **Gating relies on the other mods' current internals** (see Compatibility notes).
 - **Chain Missile** pays only for its first target, not every car it hops to.
+- **Resetting from the pause menu ends the chase** (as busted): the pause menu's Reset button resets the car directly, so `session.lua` wraps
+  `ui_pause_providers_vehicleTabInteractions.executeVehicleTabInteractionAction` once to note the click, and a reset of your car in the 8 s after it (that the Crash Breaker, a pit stop or the walking mode did not cause) ends the chase.
 - **Spawning or reconfiguring a car from the pause menu cannot be blocked** by the input filter. Doing so (outside a pit
   stop) ends the chase as busted. The fast-travel button on the big map is visible but does nothing during a chase.
 - **The Crash Breaker recover can place you in an unexpected spot** (the game's recover rewinds to an earlier recorded
@@ -731,7 +828,7 @@ The in-game options cover the performance-related and difficulty-related ones.
 1. Remove (or disable) the `most_wanted_freeroam` folder. Inputs, input blocks, and the vehicle flags are cleared when the
    extension unloads or the level restarts.
 2. The other mods are untouched, so there is nothing to revert in them.
-3. Delete `/settings/mwf_options.json` if you want to clear saved options, and `/settings/mwf_achievements.json` to reset achievements.
+3. Delete `/settings/mwf_options.json` if you want to clear saved options, `/settings/mwf_achievements.json` to reset achievements, and `/settings/mwf_tunes.json` to delete saved tunes.
 
 ---
 
@@ -775,7 +872,7 @@ the game's hooks on to them. Every other file is a small module in its own folde
   `mwf_core.getSession()`, `mwf_core.isFastTravelLocked()`. The pit stop economy also exposes `vehicleGate`, `vehicleCharged`,
   `partsGate`, `partsCharged` for its wrappers.
 - Vanilla hooks used: `onPursuitAction`, `onStartRecovering`, `onVehicleSwitched`, `onVehicleReplaced`,
-  `onVehicleDestroyed`, `onVehicleResetted`, `onClientStartMission`, `onClientEndMission`, `onExtensionLoaded`,
+  `onVehicleDestroyed`, `onVehicleResetted`, `onClientStartMission`, `onClientPostStartMission`, `onClientEndMission`, `onGetRawPoiListForLevel`, `onExtensionLoaded`,
   `onExtensionUnloaded`, `onUpdate`.
 - The pit stop economy wraps `core_vehicles.replaceVehicle` / `spawnNewVehicle` and `core_vehicle_partmgmt.setPartsTreeConfig`
   once and asks the live `mwf_core` on every call, so a reload cannot leave them stuck. Own spawns bypass the price check.

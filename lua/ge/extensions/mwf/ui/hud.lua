@@ -28,6 +28,26 @@ local function drawHud()
 
   if S.session then
     local now = os.clock()
+    -- on foot: stamina
+    if S.foot and S.foot.active then
+      local n = math.floor(S.foot.stamina / 10 + 0.5)
+      local txt = string.format("ON FOOT   STAMINA  %s%s", string.rep("|", n), string.rep(".", 10 - n))
+      if S.foot.exhausted then txt = txt .. "   (out of breath)" end
+      if S.foot.arrest > 0.1 then txt = txt .. "   SURROUNDED!" end
+      im.PushStyleColor2(im.Col_Text, UI.col((S.foot.exhausted or S.foot.arrest > 0.1) and UI.BAD or UI.GOOD, 1))
+      im.Text(txt)
+      im.PopStyleColor()
+    end
+    -- live drift counter (Forza style): only while a drift is running
+    local dr = S.session.style and S.session.style.drift
+    if dr and dr.state ~= 'idle' and dr.pts * dr.combo >= 20 then
+      local txt = string.format("DRIFT  %d  x%.1f", math.floor(dr.pts * dr.combo), dr.combo)
+      if dr.state == 'grace' then txt = txt .. "   (hold it!)" end
+      if (dr.circleF or 1) < 0.9 then txt = txt .. "   (going in circles...)" end
+      im.PushStyleColor2(im.Col_Text, UI.col(dr.state == 'grace' and UI.MUTED or UI.ACCENT, 1))
+      im.Text(txt)
+      im.PopStyleColor()
+    end
     -- bounty feed: what is earning you money, newest first
     for i, e in ipairs(S.feed) do
       local age = now - e.t
@@ -146,6 +166,23 @@ local function drawAmmo()
   im.PopStyleColor(3)
 end
 
-MWF.hud = {drawAmmo = drawAmmo, drawHud = drawHud}
+-- The heat, for the minimap app (ui/modules/apps/MwfMinimap) and for the Most Wanted Mission minimap (compat/mwm.lua):
+-- the heat level, how far through it the bounty is (0 to 1), whether the police can see you, and whether you are slipping away.
+local function heatData()
+  local s = S.session
+  if not s then return {active = false} end
+  local pd = MWF.util.getPursuit(be:getPlayerVehicleID(0))
+  local prev, nxt = MWF.util.heatThreshold(s.heat) or 0, MWF.util.heatThreshold(s.heat + 1)
+  local progress = 1
+  if nxt and nxt > prev then progress = math.max(0, math.min(1, (s.bounty - prev) / (nxt - prev))) end
+  local visible = (pd and pd.mode and pd.mode > 0 and pd.policeVisible) and true or false
+  local t = pd and pd.timers or {}
+  local cooling = (pd and pd.mode and pd.mode > 0 and not visible and (t.evadeValue or 0) > (t.arrestValue or 0)) and true or false
+  return {active = true, heat = s.heat, maxHeat = CFG.MAX_HEAT, progress = progress, pursued = visible, cooling = cooling,
+    mode = pd and pd.mode or 0, evadeValue = t.evadeValue or 0, arrestValue = t.arrestValue or 0, bounty = math.floor(s.bounty)}
+end
+function M.getHeatHud() return heatData() end
+
+MWF.hud = {drawAmmo = drawAmmo, drawHud = drawHud, heatData = heatData}
 
 return M

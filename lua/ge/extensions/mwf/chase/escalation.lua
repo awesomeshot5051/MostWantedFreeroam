@@ -26,10 +26,23 @@ local function activeIdSet()
   return t
 end
 
-local function spawnVeh(model, config)
+-- A spot on a road behind the player, out of sight (the same search vanilla traffic uses when it respawns a car). Spawning there
+-- from the start means a new unit never appears at the engine's default spawn point, which is up in the air.
+local function groundSpawnPoint()
+  local pveh = MWF.util.getPlayerVeh()
+  if not pveh then return end
+  local ok, pos, rot = pcall(function()
+    local sd = gameplay_traffic_trafficUtils.findSafeSpawnPoint(pveh:getPosition(), -pveh:getDirectionVector(), 120, 450, 220)
+    local p, r = gameplay_traffic_trafficUtils.finalizeSpawnPoint(sd.pos, sd.dir, sd.n1, sd.n2, {legalDirection = true})
+    return p, quatFromDir(r, map.surfaceNormal(p))
+  end)
+  if ok and pos and rot then return pos, rot end
+end
+
+local function spawnVeh(model, config, pos)
   local before = activeIdSet()
   S.bypassGate = true
-  local ok, veh = pcall(core_vehicles.spawnNewVehicle, model, {config = config, autoEnterVehicle = false})
+  local ok, veh = pcall(core_vehicles.spawnNewVehicle, model, {config = config, autoEnterVehicle = false, pos = pos})
   S.bypassGate = false
   if ok and veh and veh.getID then return veh end
   -- the spawn call did not hand back a vehicle (seen with the spike strip), but it may still have created one: adopt it
@@ -66,14 +79,22 @@ local function spawnPolice(heat, car, special)
   else
     car = resolveCar(car)
   end
-  local veh = spawnVeh(car[1], car[2])
+  local gpos, grot = groundSpawnPoint()
+  local veh = spawnVeh(car[1], car[2], gpos)
   if not veh and car ~= UNITS.FALLBACK_CAR and not special then
     log('W', 'mwf', string.format('could not spawn %s %s, using a fallback unit', tostring(car[1]), tostring(car[2])))
     car = UNITS.FALLBACK_CAR
-    veh = spawnVeh(car[1], car[2])
+    veh = spawnVeh(car[1], car[2], gpos)
   end
   if not veh then return end
   local id = veh:getID()
+  if gpos then
+    -- face it the right way, and keep watching it for a few seconds: if it ends up in the air it is put back on the road
+    pcall(spawn.safeTeleport, veh, gpos, grot, true, nil, false)
+    S.esc.place = S.esc.place or {}
+    S.esc.place[id] = {pos = gpos, rot = grot, t = os.clock(), tries = 0}
+  end
+  pcall(function() veh:setDynDataFieldbyName("mwfSpawned", 0, "1") end) -- lets sweepLeftovers() find it even if our lists are lost
   pcall(function()
     gameplay_traffic.insertTraffic(id)
     local tv = gameplay_traffic.getTrafficData()[id]
@@ -82,7 +103,7 @@ local function spawnPolice(heat, car, special)
       tv.enableRespawn = true
       tv.useRandomPaint = false
     end
-    gameplay_traffic.forceTeleport(id) -- puts it on a road out of sight, then vanilla police AI takes over
+    if not gpos then gameplay_traffic.forceTeleport(id) end -- no road point found: let vanilla pick one, then its police AI takes over
     local _, pid = MWF.util.getPlayerVeh()
     local pd = pid and MWF.util.getPursuit(pid)
     if pd and pd.mode and pd.mode > 0 then gameplay_police.setPursuitMode(pd.mode, pid, {id}) end
@@ -103,6 +124,7 @@ local function spawnProp(def)
   if not veh then log('W', 'mwf', 'could not spawn prop ' .. def.name) return end
   local id = veh:getID()
   local heat = S.session and S.session.heat or 1
+  pcall(function() veh:setDynDataFieldbyName("mwfSpawned", 0, "1") end)
   pcall(function()
     veh:setActive(0) -- parked until vanilla builds a roadblock with it
     if heat >= def.minHeat and heat <= def.maxHeat then gameplay_police.insertProp(id) end
@@ -177,7 +199,73 @@ local function deleteVeh(item)
   end)
 end
 
+
+-- A new chase must never inherit the last one: delete units still waiting for their delayed removal, and any unit or prop this
+-- mod spawned (tagged "mwfSpawned") that no list knows about any more (a reload, a level restart, a failed hand-over...).
+local function sweepLeftovers()
+  local n = 0
+  for _, item in ipairs(S.esc.cleanup) do deleteVeh(item) n = n + 1 end
+  S.esc.cleanup = {}
+  local keep = {}
+  for _, ids in pairs(S.esc.groups) do for _, id in ipairs(ids) do keep[id] = true end end
+  for id in pairs(S.esc.props) do keep[id] = true end
+  for _, id in ipairs(S.esc.specials) do keep[id] = true end
+  pcall(function()
+    for vid in activeVehiclesIterator() do
+      if not keep[vid] then
+        local o = getObjectByID(vid)
+        if o and o:getDynDataFieldbyName("mwfSpawned", 0) == "1" then
+          pcall(gameplay_police.removeProp, vid)
+          deleteVeh({id = vid})
+          n = n + 1
+        end
+      end
+    end
+  end)
+  if n > 0 then log('I', 'mwf', string.format('Removed %d leftover unit(s)/prop(s) from an earlier chase', n)) end
+end
+
+-- new units that are still in the air (or have dropped through the map) a moment after spawning go back to their road point
+local FALL_GAP, WATCH_TIME, MAX_FIXES = 1.5, 4, 3
+local function checkGrounded()
+  if not S.esc.place then return end
+  local now = os.clock()
+  for id, pl in pairs(S.esc.place) do
+    local o = getObjectByID(id)
+    if not o or now - pl.t > WATCH_TIME then
+      S.esc.place[id] = nil
+    elseif now - pl.t > 0.3 then
+      pcall(function()
+        local p = o:getPosition()
+        local ground = be:getSurfaceHeightBelow(vec3(p.x, p.y, p.z + 2))
+        if ground and (p.z - ground > FALL_GAP or p.z < ground - 3) then
+          if pl.tries >= MAX_FIXES then
+            S.esc.place[id] = nil
+            log('W', 'mwf', string.format('unit %d is still off the ground after %d fixes, giving up on it', id, pl.tries))
+          else
+            pl.tries, pl.t = pl.tries + 1, now
+            spawn.safeTeleport(o, pl.pos, pl.rot, true, nil, false)
+            log('I', 'mwf', string.format('unit %d was %.1f m off the ground: put back on the road (try %d)', id, p.z - ground, pl.tries))
+          end
+        end
+      end)
+    end
+  end
+end
+
+-- a unit the player has stolen (see chase/onfoot.lua): forget it everywhere so it is never retired, replaced or deleted
+local function release(id)
+  for _, ids in pairs(S.esc.groups) do
+    for i = #ids, 1, -1 do if ids[i] == id then table.remove(ids, i) end end
+  end
+  for i = #S.esc.specials, 1, -1 do if S.esc.specials[i] == id then table.remove(S.esc.specials, i) end end
+  S.esc.info[id] = nil
+  if S.esc.place then S.esc.place[id] = nil end
+  for i = #S.esc.cleanup, 1, -1 do if S.esc.cleanup[i].id == id then table.remove(S.esc.cleanup, i) end end
+end
+
 local function tickEscalation(dtReal)
+  checkGrounded()
   -- cleanup of retired vehicles
   if #S.esc.cleanup > 0 then
     local pveh = MWF.util.getPlayerVeh()
@@ -238,6 +326,6 @@ local function tickEscalation(dtReal)
   end
 end
 
-MWF.escalation = {deleteVeh = deleteVeh, escReset = escReset, escalateTo = escalateTo, retireAll = retireAll, tickEscalation = tickEscalation}
+MWF.escalation = {release = release, sweepLeftovers = sweepLeftovers, deleteVeh = deleteVeh, escReset = escReset, escalateTo = escalateTo, retireAll = retireAll, tickEscalation = tickEscalation}
 
 return M

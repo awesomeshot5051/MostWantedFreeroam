@@ -15,13 +15,21 @@ local function startSession(pd)
   S.session = {bounty = 0, spent = 0, heat = 1, lastHits = pd and pd.hitCount or 0, lastOffCount = pd and pd.offensesCount or 0, wrecked = {}, baseVars = base, timeBounty = 0}
   S.feed, S.recent, S.seenColl, S.seenOffenses = {}, {}, {}, {}
   MWF.escalation.escReset()
+  MWF.escalation.sweepLeftovers()
   S.session.weaponTag = {}
+  -- police cars that are already wrecked when the chase starts are not part of it: never pay them out as wrecks
+  pcall(function()
+    for pid, pveh in pairs(gameplay_police.getPoliceVehicles()) do
+      if pveh.role and pveh.role.state == 'disabled' then S.session.wrecked[pid] = true end
+    end
+  end)
   S.stats.wrecked, S.stats.hitPolice, S.stats.copsPresent = 0, 0, 0
   S.session.bounty = CFG.SCORE_LEVELS[1]
   S.bar = 0
   S.regenSlowUntil = 0
   MWF.util.resetRisk()
   S.lastEnd = nil
+  MWF.onfoot.reset()
   MWF.difficulty.applyHeatTuning(1)
   MWF.pits.loadGasStations()
   S.lastGas = -100
@@ -36,6 +44,7 @@ local function startSession(pd)
   MWF.lockdown.setRecoveryIntercept(true)
   MWF.achievements.add('chases', 1)
   MWF.achievements.max('heat', 1)
+  MWF.achievements.checkAll() -- goals reached outside a chase unlock now
   log('I', 'mwf', 'Chase started')
 end
 
@@ -51,6 +60,7 @@ local function endSession(kind)
     MWF.achievements.add('busts', 1)
   end
   MWF.achievements.flush()
+  MWF.onfoot.reset()
   MWF.escalation.retireAll()
   if kind == 'escaped' then MWF.rls.payEscape(S.session.bounty, S.session.heat) end
   S.session = nil
@@ -93,33 +103,75 @@ function M.onStartRecovering()
   end
 end
 
+-- ===== resetting from the pause menu ends the chase =====
+-- The pause menu's Reset button (ui/pause/providers/vehicleTabInteractions) resets the car directly, bypassing the Crash Breaker and its
+-- cost. Its only public entry is executeVehicleTabInteractionAction(buttonId, payload), which the page calls for every button, so that is
+-- wrapped once: it only notes the time. A reset of the player's car that follows shortly after, and that the Crash Breaker / a pit stop did
+-- not cause, is the pause menu's reset, and counts as running away (the chase ends as "busted").
+local PAUSE_RESET_WINDOW = 8 -- s
+
+function M.notePauseAction()
+  if S.session then S.pauseActionAt = os.clock() end
+end
+
+local function installPauseWatch()
+  local ext = ui_pause_providers_vehicleTabInteractions
+  if type(ext) ~= 'table' or ext.mwfWrapped or type(ext.executeVehicleTabInteractionAction) ~= 'function' then return end
+  ext.mwfWrapped = true
+  local orig = ext.executeVehicleTabInteractionAction
+  ext.executeVehicleTabInteractionAction = function(...)
+    if mwf_core and mwf_core.notePauseAction then mwf_core.notePauseAction() end
+    return orig(...)
+  end
+  log('I', 'mwf', 'Pause menu: vehicle actions watched (a pause menu reset ends the chase)')
+end
+
 function M.onVehicleResetted(vehId)
+  if S.session and vehId == be:getPlayerVehicleID(0) and S.pauseActionAt and os.clock() - S.pauseActionAt < PAUSE_RESET_WINDOW
+    and not (S.breaker or os.clock() < (S.breakerLockUntil or 0) or S.inGas or S.inGarage or S.transfer or S.foot.active) then
+    S.pauseActionAt = nil
+    log('I', 'mwf', 'The car was reset from the pause menu: chase over')
+    MWF.util.toast("warning", "Chase over", "Resetting from the pause menu counts as running away.", 4000)
+    endSession('busted')
+    return
+  end
   if S.session and vehId == be:getPlayerVehicleID(0) then
     S.riskPauseUntil = os.clock() + 1.5
     MWF.util.resetRisk()
   end
 end
 
+local function repairing() return S.rlsRepairUntil ~= nil and os.clock() < S.rlsRepairUntil end -- an RLS computer repair is in progress
+
 function M.onVehicleSwitched(oldId, newId)
   if not S.session then return end
   if S.inGas and newId then
     MWF.pits.scheduleTransfer(oldId, newId) -- allowed at a gas station; the chase continues
+  elseif MWF.onfoot.handleSwitch(oldId, newId) then
+    -- got out of the car (or into another one) during the chase: it goes on
+  elseif repairing() and newId then
+    MWF.pits.scheduleTransfer(oldId, newId) -- the RLS repair respawned the car: the chase goes on in it
   else
+    log('I', 'mwf', string.format('Chase ends: the player car was switched from %s to %s outside a pit stop', tostring(oldId), tostring(newId)))
     endSession('busted') -- swapping cars out on the road counts as running away from the chase
   end
 end
 
 function M.onVehicleReplaced(vehId)
   if not S.session or S.breaker or vehId ~= be:getPlayerVehicleID(0) then return end
-  if S.inGas then
+  if S.inGas or repairing() then
     MWF.pits.scheduleTransfer(vehId, vehId)
   else
+    log('I', 'mwf', string.format('Chase ends: the player car %s was replaced / respawned outside a pit stop (RLS career: %s)', tostring(vehId), tostring(S.rls and S.rls.active)))
     endSession('busted')
   end
 end
 
 function M.onVehicleDestroyed(vehId)
-  if S.session and vehId == be:getPlayerVehicleID(0) and not (S.inGas or S.transfer) then endSession('busted') end
+  if S.session and vehId == be:getPlayerVehicleID(0) and not (S.inGas or S.transfer or repairing()) then
+    log('I', 'mwf', 'Chase ends: the player car ' .. tostring(vehId) .. ' was destroyed / removed')
+    endSession('busted')
+  end
 end
 
 function M.onClientStartMission()
@@ -137,6 +189,7 @@ function M.onClientStartMission()
 end
 
 function M.onClientEndMission()
+  S.fallbackPois, S.poiLabelTimer, S.poiLabelsDone, S.poiLabelLevel = {}, nil, true, nil -- (world/pits.lua) the next level works out its own made-up pit stops
   if S.session then endSession('level ended') end
   MWF.escalation.escReset()
   S.hiddenCivs, S.restoreQueue = {}, {}
@@ -168,6 +221,6 @@ function M.onExtensionUnloaded()
   S.hiddenCivs = {}
 end
 
-MWF.session = {endSession = endSession, startSession = startSession}
+MWF.session = {endSession = endSession, startSession = startSession, installPauseWatch = installPauseWatch}
 
 return M

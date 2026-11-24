@@ -64,7 +64,9 @@ local function chaseResetGameplay(pid, source)
     S.bar = math.max(0, S.bar - CFG.SLOT_COST)
     if cost > 0 then
       if S.rls.active then
-        MWF.rls.charge(cost, "Most Wanted: Crash Breaker reset (" .. ((S.options.rlsResetPayment == "private") and "private" or "insurance claim") .. ")")
+        local private = S.options.rlsResetPayment == "private"
+        MWF.rls.charge(cost, "Most Wanted: Crash Breaker reset (" .. (private and "private" or "insurance claim") .. ")")
+        MWF.rls.announce(cost, private and "private repair" or "insurance claim")
       else
         MWF.garage.spendBounty(cost, "Crash Breaker reset")
       end

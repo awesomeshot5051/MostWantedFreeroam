@@ -21,9 +21,10 @@ local HEAT_GROUPS = {
   [4] = {count = 3, note = "unmarked cars, interceptors, SPIKE STRIPS", cars = {
     C("bastion", "vehicles/bastion/police_unmarked_v8_awd_A.pc", "Unmarked unit"), C("roamer", "vehicles/roamer/unmarked.pc", "Unmarked SUV"),
     C("sunburst2", "vehicles/sunburst2/interceptor.pc", "Interceptor", 1.1)}},
-  [5] = {count = 4, note = "interceptors and heavy police vans", cars = {
+  [5] = {count = 5, note = "interceptors, heavy police vans and an ARMORED police truck", cars = {
     C("scintilla", "vehicles/scintilla/interceptor.pc", "Interceptor", 1.2), C("van", "vehicles/van/police.pc", "Police van", 1.25),
-    C("roamer", "vehicles/roamer/unmarked.pc", "Unmarked SUV"), C("van", "vehicles/van/police_passenger.pc", "Police transport van", 1.25)}},
+    C("roamer", "vehicles/roamer/unmarked.pc", "Unmarked SUV"), C("van", "vehicles/van/police_passenger.pc", "Police transport van", 1.25),
+    C("md_series", "vehicles/md_series/md_60_armored_police.pc", "Armored police truck", 1.5)}},
   [6] = {count = 4, note = "elite interceptors and special pursuit semis", cars = {
     C("bastion", "vehicles/bastion/mwm_interceptor.pc", "Elite interceptor", 1.3, true, C("bastion", "vehicles/bastion/police_unmarked_v8_awd_A.pc", "Unmarked unit")),
     SEMI_MWM,

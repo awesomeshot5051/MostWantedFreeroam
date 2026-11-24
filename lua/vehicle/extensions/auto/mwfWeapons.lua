@@ -7,7 +7,7 @@
 -- we take that key out of the electrics table and answer reads/writes through a small proxy:
 --   * writes (the trigger) are remembered as "held";
 --   * reads (what the weapon's controller sees) return 1 only while the trigger is held AND rounds are loaded.
--- Rounds are used up by time (fireRate/60 per second while firing). When they run out the next trigger pull asks the
+-- Rounds are billed per shot, mirroring the weapon's own fire timer (an instant shot on each trigger press, then one per 60/fireRate s). When they run out the next trigger pull asks the
 -- game-side mod (mwf_core) for a reset-bar slot, which is answered through grantSlot().
 
 local M = {}
@@ -26,9 +26,10 @@ local function scan()
       if not weapons[fe] then
         weapons[fe] = {
           rate = d.fireRate,
-          -- machine guns (no explosion) = 100 rounds per slot, big guns = 10; a jbeam key can override
-          perSlot = d.roundsPerSlot or ((d.explosionRadius or 0) > 0 and 10 or 100),
-          rounds = 0, held = 0, out = 0, accum = 0, awaiting = false, awaitT = 0, retryT = 0,
+          -- machine guns (no explosion) = 40 rounds per slot, big guns = 5 (a slot is a third of the reset bar, so it has to run out fast); a jbeam key can override
+          perSlot = d.roundsPerSlot or ((d.explosionRadius or 0) > 0 and 5 or 40),
+          interval = 60 / d.fireRate, timer = 0, -- the weapon starts with an empty timer and recharges while idle
+          rounds = 0, held = 0, out = 0, awaiting = false, awaitT = 0, retryT = 0,
         }
       end
     end
@@ -55,14 +56,23 @@ local function install()
   end
   mt.__index = function(t, k)
     local w = weapons[k]
-    if w then return w.out end
+    if w then return ((tonumber(w.held) or 0) > 0.5 and w.rounds > 0) and 1 or 0 end
     if type(oldIndex) == 'function' then return oldIndex(t, k) end
     if type(oldIndex) == 'table' then return oldIndex[k] end
     return nil
   end
   mt.__newindex = function(t, k, val)
     local w = weapons[k]
-    if w then w.held = val or 0 return end
+    if w then
+      local wasHeld = (tonumber(w.held) or 0) > 0.5
+      w.held = val or 0
+      -- the weapon fires instantly on a trigger press when its timer is charged: bill that shot now, so a quick tap is not free
+      if not wasHeld and (tonumber(w.held) or 0) > 0.5 and w.rounds > 0 and w.timer >= w.interval then
+        w.rounds = w.rounds - 1
+        w.timer = 0
+      end
+      return
+    end
     if type(oldNewIndex) == 'function' then return oldNewIndex(t, k, val) end
     rawset(t, k, val)
   end
@@ -100,19 +110,20 @@ local function updateGFX(dt)
     w.retryT = math.max(0, w.retryT - dt)
     w.pushT = math.max(0, (w.pushT or 0) - dt)
 
+    -- mirror the weapon's own fire timer (it recharges while idle, then fires once per interval while held)
     if held and w.rounds > 0 then
-      w.accum = w.accum + dt * (w.rate / 60)
-      local n = math.floor(w.accum)
-      if n >= 1 then
-        w.rounds = math.max(0, w.rounds - n)
-        w.accum = w.accum - n
+      w.timer = w.timer + dt
+      while w.timer >= w.interval and w.rounds > 0 do
+        w.rounds = w.rounds - 1
+        w.timer = w.timer - w.interval
       end
+    else
+      w.timer = math.min(w.timer + dt, w.interval)
     end
 
     if held and w.rounds <= 0 and not w.awaiting and w.retryT <= 0 then
       request(fe, w)
     end
-    w.out = (held and w.rounds > 0) and 1 or 0
     pushAmmo(fe, w, w.pushed == nil)
   end
 end
@@ -136,7 +147,7 @@ end
 -- a reset empties the guns (they must be paid for again)
 local function resetRounds()
   for fe, w in pairs(weapons) do
-    w.rounds, w.accum, w.awaiting = 0, 0, false
+    w.rounds, w.awaiting, w.timer = 0, false, 0
     pushAmmo(fe, w, true)
   end
 end

@@ -45,8 +45,38 @@ local function wreckValue(pid)
   return amount, label
 end
 
+-- Vanilla only fills the escape meter while the nearest police car is more than 80 m away (and empties it inside 40 m), so a
+-- player the police cannot reach (river bed, island, ledge) can never escape. If you sit still and nobody is arresting you, the
+-- meter starts to fill after LIE_LOW_GRACE seconds and takes the normal evade time to finish.
+local LIE_LOW_GRACE, LIE_LOW_SPEED = 15, 4
+local function lieLow(dtSim, pd, id)
+  local s = S.session
+  local veh = MWF.util.getPlayerVeh()
+  if not (s and veh and pd and pd.timers and gameplay_police and gameplay_police.getPursuitVars) then return end
+  local still = veh:getVelocity():length() < LIE_LOW_SPEED and (pd.timers.arrest or 0) < 0.05 and (pd.mode or 0) > 0
+  s.lieLow = still and (s.lieLow or 0) + dtSim or math.max(0, (s.lieLow or 0) - 2 * dtSim)
+  if s.lieLow <= LIE_LOW_GRACE then s.lieLowToast = false return end
+  if not s.lieLowToast then
+    s.lieLowToast = true
+    MWF.util.toast("info", "Lying low", "The police cannot get to you. Stay put and they will give up.", 4000)
+  end
+  local ok, vars = pcall(gameplay_police.getPursuitVars)
+  local evadeTime = ok and vars and vars.evadeTime or 45
+  local progress = (s.lieLow - LIE_LOW_GRACE) / evadeTime
+  if progress >= 1 then
+    s.lieLow = 0
+    pcall(gameplay_police.evadeVehicle, id, true)
+    return
+  end
+  if (pd.timers.evade or 0) < progress * evadeTime then
+    pd.timers.evade = progress * evadeTime
+    pd.timers.evadeValue = progress
+  end
+end
+
 local function updatePursuit(dtSim, pd, id)
   local s = S.session
+  lieLow(dtSim, pd, id)
 
   -- repeat penalties fade
   for k, v in pairs(S.recent) do
@@ -108,11 +138,13 @@ local function updatePursuit(dtSim, pd, id)
   s.lastOffCount = oc
 
   -- police cars: count who is still in the chase, and credit every one put out of action
-  local present = 0
+  local present, registered, downed, pooled = 0, 0, 0, 0
   if gameplay_police and gameplay_police.getPoliceVehicles then
     for pid, pveh in pairs(gameplay_police.getPoliceVehicles()) do
       local obj = getObjectByID(pid)
       local disabled = pveh.role and pveh.role.state == 'disabled'
+      registered = registered + 1
+      if disabled then downed = downed + 1 elseif obj and not obj:getActive() then pooled = pooled + 1 end
       if disabled and not s.wrecked[pid] then
         s.wrecked[pid] = true
         S.stats.wrecked = S.stats.wrecked + 1
@@ -140,6 +172,11 @@ local function updatePursuit(dtSim, pd, id)
     end
   end
   S.stats.copsPresent = present
+  -- for checking the COPS ON YOU number against what is really out there: how many police vanilla knows, and why some are not counted
+  if os.clock() - (s.copLogT or 0) >= 10 then
+    s.copLogT = os.clock()
+    log('I', 'mwf', string.format('Cops: %d counted, %d registered police (%d disabled/wrecked, %d inactive/pooled by traffic)', present, registered, downed, pooled))
+  end
 
   -- achievement stats that follow the chase as it runs
   s.time = (s.time or 0) + dtSim

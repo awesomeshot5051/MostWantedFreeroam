@@ -5,6 +5,28 @@ local CFG = require('/lua/ge/extensions/mwf/data/config')
 local im = ui_imgui
 
 local M = {}
+local guessWeaponTarget -- defined with the Weapon Panel code below
+
+-- ===== weapons can start a chase =====
+-- Hitting a police car or a civilian car with a weapon is an offense, but only one a police car can see: the same check vanilla
+-- uses for every offense (the pursuit's policeVisible flag, which needs a police car with eyes on you). Off with the option.
+local lastProvoke = {}
+function M.provoke(targetId)
+  if not S.options.weaponChase or not targetId then return end
+  local now = os.clock()
+  if now - (lastProvoke[targetId] or -1e9) < 1.5 then return end
+  lastProvoke[targetId] = now
+  pcall(function()
+    local _, pid = MWF.util.getPlayerVeh()
+    local traffic = gameplay_traffic.getTrafficData()
+    local me, victim = traffic[pid], traffic[targetId]
+    if not me or not victim or targetId == pid then return end
+    if not me.pursuit.policeVisible then return end -- nobody saw it
+    local cop = victim.role and victim.role.name == 'police'
+    me:triggerOffense({key = cop and 'hitPolice' or 'hitTraffic', value = targetId, score = cop and 250 or 150})
+    log('I', 'mwf', string.format('Weapon use on %s %d counted as an offense', cop and 'police car' or 'vehicle', targetId))
+  end)
+end
 
 -- ===== public API =====
 -- Pays bounty for a paid Weapon Panel use on a vehicle (called from the panel gating below).
@@ -49,7 +71,7 @@ function M.requestSlot(vehId, roundsPerSlot, weaponKey)
   local paid = S.session and vehId == pid
   if paid then
     local rounds = tonumber(roundsPerSlot) or 0
-    ok = MWF.core.spendSlot('Gun ammo', 1, rounds >= 50 and CFG.GUN_COST_MG or CFG.GUN_COST_BIG)
+    ok = MWF.core.spendSlot('Gun ammo', 1, rounds >= 20 and CFG.GUN_COST_MG or CFG.GUN_COST_BIG)
     if ok then MWF.achievements.add('weaponUses', 1) end
   end
   log('I', 'mwf', string.format('Universal Weapon slot request from vehicle %s (%s): %s%s', tostring(vehId), tostring(weaponKey),
@@ -63,7 +85,10 @@ function M.reportAmmo(vehId, fe, current, max)
   S.ammoByVeh[vehId] = S.ammoByVeh[vehId] or {}
   local prev = S.ammoByVeh[vehId][fe]
   -- rounds going down on the player's car = the player is shooting (used to discount gun kills)
-  if prev and (current or 0) < prev.rounds and vehId == select(2, MWF.util.getPlayerVeh()) then S.lastGunFire = os.clock() end
+  if prev and (current or 0) < prev.rounds and vehId == select(2, MWF.util.getPlayerVeh()) then
+    S.lastGunFire = os.clock()
+    M.provoke(guessWeaponTarget("Gun"))
+  end
   S.ammoByVeh[vehId][fe] = {rounds = current or 0, max = max or 0}
 end
 
@@ -79,9 +104,9 @@ local WP_BUTTONS = {
   ["Steering Jam LEFT"] = "Steering Jam", ["Steering Jam RIGHT"] = "Steering Jam",
   ["Lock Parking Brake"] = "Parking Brake Lock", ["Pop Tires"] = "Tire Pop",
 }
-local wp = {inPanel = false, pending = {}, success = 0}
+local wp = {inPanel = false, pending = {}, free = {}, success = 0}
 
-local function guessWeaponTarget(name)
+guessWeaponTarget = function(name) -- name == 'Gun' looks along the line of fire only
   local pveh, pid = MWF.util.getPlayerVeh()
   if not pveh then return nil end
   local ppos, pdir = pveh:getPosition(), pveh:getDirectionVector()
@@ -93,7 +118,7 @@ local function guessWeaponTarget(name)
       local off = o:getPosition() - ppos
       local d = off:length()
       local ok
-      if name == "Tire Pop" then ok = d < 20 else ok = d < 200 and d > 0.1 and (off / d):dot(pdir) > 0.3 end
+      if name == "Tire Pop" then ok = d < 20 elseif name == "Gun" then ok = d < 150 and d > 0.1 and (off / d):dot(pdir) > 0.94 else ok = d < 200 and d > 0.1 and (off / d):dot(pdir) > 0.3 end
       if ok and (not bestD or d < bestD) then best, bestD = id, d end
     end
   end
@@ -102,7 +127,11 @@ end
 
 function M.wpGate(label)
   local name = WP_BUTTONS[label]
-  if not name or not S.session then return true end -- not a weapon button, or no chase: free, as in the original mod
+  if not name then return true end
+  if not S.session then -- no chase: free, as in the original mod; with the option on, a hit can still start one
+    if S.options.weaponChase then table.insert(wp.free, name) end
+    return true
+  end
   local slots = CFG.WEAPON_SLOTS[name] or 1
   if not MWF.util.canSpend(slots) then
     MWF.util.toast("warning", "Reset Bar Empty", slots > 1 and string.format("%s drains all %d reset bars. Fill the whole bar first.", name, slots)
@@ -119,7 +148,7 @@ function M.wpGate(label)
 end
 
 function M.wpToast(data)
-  if wp.inPanel and #wp.pending > 0 and type(data) == 'table' and data.type == "success" then wp.success = wp.success + 1 end
+  if wp.inPanel and (#wp.pending > 0 or #wp.free > 0) and type(data) == 'table' and data.type == "success" then wp.success = wp.success + 1 end
 end
 
 function M.wpPanelEnd()
@@ -130,10 +159,14 @@ function M.wpPanelEnd()
       MWF.achievements.add('weaponUses', 1)
       if name == 'EMP' then MWF.achievements.add('empUses', 1) end
       local target = guessWeaponTarget(name)
-      if target then MWF.core.weaponHit(name, target) end
+      if target then MWF.core.weaponHit(name, target) M.provoke(target) end
     end
   end
-  wp.pending, wp.success, wp.inPanel = {}, 0, false
+  for i = 1, math.min(#wp.free, wp.success) do
+    local target = guessWeaponTarget(wp.free[i])
+    if target then M.provoke(target) end
+  end
+  wp.pending, wp.free, wp.success, wp.inPanel = {}, {}, 0, false
 end
 
 local function installWeaponPanelHooks()

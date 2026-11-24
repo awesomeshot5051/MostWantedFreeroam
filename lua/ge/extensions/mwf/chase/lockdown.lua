@@ -35,13 +35,15 @@ local function buildBlockedList()
   end
   if type(templates) == 'table' then
     for _, tname in ipairs(BLOCK_TEMPLATES) do
-      for _, a in ipairs(templates[tname] or {}) do
-        if not gasOpen(a, tname) then add(a) end
+      if not (tname == "walkingMode" and S.options.onFoot) then -- getting out of the car is allowed with the on-foot option
+        for _, a in ipairs(templates[tname] or {}) do
+          if not gasOpen(a, tname) then add(a) end
+        end
       end
     end
   end
   for _, a in ipairs(FALLBACK_BLOCKED) do
-    if not gasOpen(a) then add(a) end
+    if not gasOpen(a) and not (a == "toggleWalkingMode" and S.options.onFoot) then add(a) end
   end
   return list
 end

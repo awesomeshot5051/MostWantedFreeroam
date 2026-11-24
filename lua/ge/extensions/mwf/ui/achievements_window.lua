@@ -18,54 +18,51 @@ local function fmtValue(v, fmt, system)
   return tostring(math.floor(v))
 end
 
-local function pushStyle()
-  im.PushStyleColor2(im.Col_WindowBg, im.ImVec4(20/255, 22/255, 30/255, 0.96))
-  im.PushStyleColor2(im.Col_Border, im.ImVec4(0, 191/255, 1, 0.35))
-  im.PushStyleColor2(im.Col_Text, im.ImVec4(UI.TEXT[1], UI.TEXT[2], UI.TEXT[3], 1))
-  im.PushStyleColor2(im.Col_TitleBg, im.ImVec4(10/255, 12/255, 18/255, 1))
-  im.PushStyleColor2(im.Col_TitleBgActive, im.ImVec4(0, 90/255, 130/255, 1))
-  im.PushStyleVar1(im.StyleVar_WindowRounding, 12)
-  im.PushStyleVar1(im.StyleVar_WindowBorderSize, 1)
-end
-local function popStyle()
-  im.PopStyleVar(2)
-  im.PopStyleColor(5)
+-- ===== the list: Lua side of the Vue page MwfAchievements.vue =====
+local shown, openedAt, acked = false, 0, false
+local OPEN_TIMEOUT = 4
+
+-- called every frame: tells the page to open or close
+local function drawWindow()
+  local want = S.ach.show[0] == true
+  if want ~= shown then
+    shown = want
+    if want then openedAt, acked = os.clock(), false end
+    guihooks.trigger('MwfAchievements', {visible = want})
+  end
+  if want and not acked and os.clock() - openedAt > OPEN_TIMEOUT then
+    log('E', 'mwf', 'Achievements UI did not answer: is ui/ui-vue/mods/most_wanted_freeroam loaded?')
+    MWF.util.toast("error", "Achievements UI did not load", "Check BeamNG.log for errors from most_wanted_freeroam.", 6000)
+    S.ach.show[0] = false
+  end
 end
 
-local function drawWindow()
-  if not S.ach.show[0] then return end
+-- everything the page shows, with the numbers already formatted for the player's unit system
+function M.achievementsGet()
+  acked = true
   if not S.ach.loaded then MWF.achievements.load() end
-  local vp = im.GetMainViewport()
-  im.SetNextWindowPos(im.ImVec2(vp.Pos.x + 60, vp.Pos.y + 90), im.Cond_FirstUseEver)
-  im.SetNextWindowSize(im.ImVec2(560, 560), im.Cond_FirstUseEver)
-  pushStyle()
-  if im.Begin("Most Wanted - Achievements", S.ach.show) then
-    local done = 0
-    for _, a in ipairs(ACH.LIST) do if S.ach.unlocked[a.id] then done = done + 1 end end
-    im.SetWindowFontScale(1.3)
-    im.TextColored(UI.col(UI.ACCENT), string.format("ACHIEVEMENTS  %d / %d", done, #ACH.LIST))
-    im.SetWindowFontScale(1.0)
-    im.Separator()
-    local system = MWF.util.unitSystem()
-    for _, a in ipairs(ACH.LIST) do
-      local got = S.ach.unlocked[a.id]
-      local goal = ACH.goalOf(a, system)
-      im.TextColored(UI.col(got and UI.GOOD or UI.TEXT), (got and "[x] " or "[ ] ") .. a.name)
-      im.TextColored(UI.col(UI.MUTED), "      " .. ACH.descOf(a, system))
-      if not got and goal > 1 then
-        local v = math.min(goal, S.ach.stats[a.stat] or 0)
-        local p = im.GetCursorScreenPos()
-        UI.drawBar(im.GetWindowDrawList(), p.x + 24, p.y + 2, 220, 6, v / goal, UI.BLUE)
-        im.Dummy(im.ImVec2(1, 10))
-        im.SameLine(280)
-        im.TextColored(UI.col(UI.MUTED), fmtValue(v, a.fmt, system) .. " / " .. fmtValue(goal, a.fmt, system))
-      end
-      im.Spacing()
-    end
+  local system = MWF.util.unitSystem()
+  local items, done = {}, 0
+  for _, a in ipairs(ACH.LIST) do
+    local got = S.ach.unlocked[a.id] ~= nil
+    if got then done = done + 1 end
+    local goal = ACH.goalOf(a, system)
+    local v = math.min(goal, S.ach.stats[a.stat] or 0)
+    items[#items + 1] = {id = a.id, name = a.name, desc = ACH.descOf(a, system), got = got,
+      progress = goal > 1 and not got and (v / goal) or nil,
+      progressText = goal > 1 and not got and (fmtValue(v, a.fmt, system) .. " / " .. fmtValue(goal, a.fmt, system)) or nil}
   end
-  im.End()
-  popStyle()
+  return {done = done, total = #ACH.LIST, items = items}
 end
+
+-- the Reset button on the page (it asks to confirm first); answers with the fresh list
+function M.achievementsReset()
+  MWF.achievements.reset()
+  return M.achievementsGet()
+end
+
+function M.achievementsClose() S.ach.show[0] = false end
+function M.openAchievements() S.ach.show[0] = true end
 
 -- banner at the top centre for a few seconds after an unlock (one at a time, queued)
 local function drawBanner()

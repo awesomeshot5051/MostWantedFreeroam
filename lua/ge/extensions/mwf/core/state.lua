@@ -17,7 +17,8 @@ S.resetsLocked = false
 S.ach = {stats = {}, unlocked = {}, banners = {}, dirty = false, saveTimer = 0, loaded = false, show = im.BoolPtr(false)} -- achievements (see achievements/tracker.lua)
 S.rls = {active = false, checkT = 0, resetCost = 0, payouts = {}} -- RLS career compatibility (see compat/rls.lua)
 S.regenSlowUntil = 0  -- os.clock() until which the reset bar refills slowly (after a free reset at heat 1-2)
-S.options = {hideCivilians = false, spawnInterval = 1.5, smooth = true, waveScale = 1.0, pitCosts = true, priceFactor = 0.5, fallbackPits = true, sensitivity = 1.0, rlsResetPayment = "insurance"}
+S.fallbackPois = {} -- POI id -> "garage" / "gas station", for the POIs made into pit stops (world/pits.lua)
+S.options = {hideCivilians = false, thinTraffic = true, spawnInterval = 1.5, smooth = true, waveScale = 1.0, pitCosts = true, priceFactor = 0.5, fallbackPits = true, sensitivity = 1.0, rlsResetPayment = "insurance", weaponChase = true, onFoot = true, stealCars = true}
 -- pit stop economy (see "pit stop economy" section): vehicle swaps and part changes cost bounty
 S.garage = {show = im.BoolPtr(false), mode = nil, search = im.ArrayChar(128), catalog = nil, note = ""} -- mode: nil | "hub" | "cars" | "parts"
 S.garagePaused = false

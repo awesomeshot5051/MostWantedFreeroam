@@ -25,8 +25,8 @@ local im = ui_imgui
 -- load order: data and helpers first, then the modules that use them (rerequire = always read the files again)
 local DATA = {'data/config', 'data/units', 'data/achievements', 'ui/theme'}
 local LOGIC = {'core/state', 'core/util', 'core/options', 'chase/lockdown', 'chase/breaker', 'chase/difficulty', 'chase/escalation',
-  'chase/pursuit', 'chase/bar', 'chase/civilians', 'world/pits', 'economy/garage', 'economy/weapons', 'ui/hud', 'ui/garage_window',
-  'ui/options_window', 'compat/rls', 'achievements/tracker', 'ui/achievements_window', 'chase/session'}
+  'chase/pursuit', 'chase/bar', 'chase/style', 'chase/onfoot', 'chase/civilians', 'world/pits', 'economy/garage', 'economy/weapons', 'ui/hud', 'ui/garage_window',
+  'ui/options_window', 'compat/rls', 'compat/mwm', 'achievements/tracker', 'ui/achievements_window', 'chase/session'}
 for _, path in ipairs(DATA) do rerequire(BASE .. path) end
 local CFG = require(BASE .. 'data/config')
 for _, path in ipairs(LOGIC) do
@@ -55,6 +55,9 @@ end
 function M.onUpdate(dtReal, dtSim)
   if not S.optionsLoaded then MWF.options.loadOptions() end
   if not im.mwfWrapped then pcall(MWF.weapons.installWeaponPanelHooks) end
+  if gameplay_walk and not gameplay_walk.mwfWrapped then pcall(MWF.onfoot.installTheftHook) end
+  if ui_pause_providers_vehicleTabInteractions and not ui_pause_providers_vehicleTabInteractions.mwfWrapped then pcall(MWF.session.installPauseWatch) end
+  pcall(MWF.mwm.install)
   if not (core_vehicles and core_vehicles.mwfWrapped and core_vehicle_partmgmt and core_vehicle_partmgmt.mwfWrapped) then pcall(MWF.garage.installVehicleGuards) end
   if not S.session and not S.breaker then
     S.idleClear = (S.idleClear or 0) + dtReal
@@ -71,10 +74,12 @@ function M.onUpdate(dtReal, dtSim)
       S.resetTrace = nil
     end
   end
+  MWF.garage.keepGaragePaused()
   MWF.escalation.tickEscalation(dtReal)
   MWF.civilians.tickCivilians(dtReal)
   MWF.difficulty.tickSensitivity(dtReal)
   MWF.achievements.tick(dtReal)
+  MWF.pits.tickPoiLabels(dtReal)
   MWF.rls.tick(dtReal)
   MWF.breaker.tickBreaker(dtReal)
   MWF.pits.tickTransfer(dtReal)
@@ -96,6 +101,8 @@ function M.onUpdate(dtReal, dtSim)
       MWF.pursuit.updatePursuit(dtSim, pd, id)
       MWF.pits.checkGasStations(veh)
       MWF.bar.updateBar(dtSim, veh, id)
+      MWF.style.updateStyle(dtSim, veh, id)
+      MWF.onfoot.update(dtSim, veh, id)
     end
   end
 

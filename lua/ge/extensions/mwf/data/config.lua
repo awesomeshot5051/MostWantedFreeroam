@@ -32,7 +32,7 @@ local WEAPON_COST = {
   ["Throttle Lock"] = 400, ["Brake Lock"] = 400, ["Steering Jam"] = 400, ["Parking Brake Lock"] = 400,
 }
 local WEAPON_SLOTS = {["EMP"] = 3} -- reset-bar slots per use (default 1): the EMP hits many cars, so it drains the whole bar
-local GUN_COST_MG, GUN_COST_BIG = 1000, 2000 -- per slot of Universal Weapons ammo (100 machine-gun rounds / 10 big-gun rounds)
+local GUN_COST_MG, GUN_COST_BIG = 1000, 2000 -- per slot of Universal Weapons ammo (40 machine-gun rounds / 5 big-gun rounds; the round counts are in lua/vehicle/extensions/auto/mwfWeapons.lua)
 local WRECK_BASE, WRECK_PER_HEAT, WRECK_MAX = 1000, 250, 5000 -- police wreck payout: by the heat the unit belongs to, x its class multiplier
 local GUN_WRECK_FRACTION = 0.35 -- wrecks credited to machine-gun / cannon fire pay only this share (stops gun farming)
 local GUN_CREDIT_WINDOW  = 4    -- s: a cop disabled this soon after you fired a gun counts as a gun kill

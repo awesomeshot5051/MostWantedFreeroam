@@ -100,6 +100,7 @@ function FB.add(levelId)
       kind = haveGarage and "gas station" or "garage"
     end
     if kind then
+      S.fallbackPois[poi.id] = kind -- the big map labels this POI (see onGetRawPoiListForLevel)
       table.insert(S.gasStations, {name = poi.name, kind = kind, pos = poi.pos, radius = FB.radius, fallback = true})
       added[kind] = added[kind] + 1
     end
@@ -112,6 +113,7 @@ end
 -- Garages (not in Most Wanted): their own zone box.
 local function loadGasStations()
   S.gasStations = {}
+  S.fallbackPois = {}
   if S.rls.active then
     log('I', 'mwf', 'RLS career: pit stops are disabled (repairs and car changes are RLS\'s job)')
     return
@@ -143,11 +145,17 @@ local function loadGasStations()
 end
 
 -- returns the station you are inside (or nil) and your distance to it
+-- A garage that is also a gas station (e.g. Utah) overlaps both zones: the garage wins, so its shop opens.
 local function findStation(pos)
+  local first, firstD
   for _, g in ipairs(S.gasStations) do
     local d = (pos - g.pos):length()
-    if d < g.radius then return g, d end
+    if d < g.radius then
+      if g.kind == "garage" then return g, d end
+      if not first then first, firstD = g, d end
+    end
   end
+  return first, firstD
 end
 
 -- Like Most Wanted's "Check Inside Gas Stations" node: fires ONCE when you go from outside to inside, and not
@@ -165,7 +173,9 @@ local function checkGasStations(veh)
     MWF.lockdown.refreshBlock()
     return
   end
-  if inside == S.inGas then return end
+  -- drove from a gas station's zone into an overlapping garage's zone: that counts as entering the garage
+  local intoGarage = inside and S.inGas and station.kind == "garage" and not S.inGarage
+  if inside == S.inGas and not intoGarage then return end
   S.inGas = inside
   S.inGarage = inside and station.kind == "garage"
   MWF.lockdown.refreshBlock()
@@ -198,6 +208,106 @@ local function checkGasStations(veh)
   end
 end
 
-MWF.pits = {checkGasStations = checkGasStations, loadGasStations = loadGasStations, scheduleTransfer = scheduleTransfer, tickTransfer = tickTransfer}
+-- ===== big map labels for the made-up pit stops =====
+-- On a map with no garages and / or no gas stations, some points of interest are turned into the missing kind (FB.add above), but they
+-- all look alike on the big map, so you would have to guess which one is which. The game collects the big map's POIs through the hook
+-- onGetRawPoiListForLevel; every time the list is built, the POIs we turned into pit stops get the game's own garage / fuel icon and a
+-- "Garage:" / "Gas station:" in front of their name. Real garages and gas stations already have their own icons and are never touched.
+local POI_LABELS = {
+  ["garage"] = {icon = "poi_garage_2_round", card = "garage01", prefix = "Garage: "},
+  ["gas station"] = {icon = "poi_fuel_round", card = "fuelPump", prefix = "Gas station: "},
+}
+
+-- gives the POIs we turned into pit stops their icon and name; returns how many were newly changed
+local function labelPois(elements)
+  local labels = S.fallbackPois
+  if not labels or not next(labels) or type(elements) ~= 'table' then return 0 end
+  local n = 0
+  for _, e in ipairs(elements) do
+    local kind = labels[tostring(e.id)]
+    local mk = kind and e.markerInfo and e.markerInfo.bigmapMarker
+    local def = kind and POI_LABELS[kind]
+    if mk and def and not mk.mwfLabeled then
+      mk.mwfLabeled = true
+      local name = mk.name
+      if type(name) == 'string' then
+        local ok, translated = pcall(function() return _tr(name) end)
+        if ok and type(translated) == 'string' and translated ~= "" then name = translated end
+      else
+        name = tostring(e.id)
+      end
+      mk.name = def.prefix .. name
+      mk.icon = def.icon       -- the pin on the map
+      mk.cardIcon = def.card   -- the icon on the big map's list / detail card (the Vue big map reads this one first)
+      n = n + 1
+    end
+  end
+  return n
+end
+
+-- The big map (freeroam/vueBigMap.lua) clears the POI list every time it opens and builds a fresh one, and the hook below can run before
+-- the extensions that add the POIs, so labelling inside the hook was not reliable. Instead the list getter is wrapped once: every list the
+-- game hands out gets labelled (a list that was already labelled is skipped, so it costs nothing per call).
+function M.mwfLabelPois(list)
+  if list == S.poiLabeledList then return end
+  if S.rls and S.rls.active or not S.options.fallbackPits then return end
+  if not next(S.fallbackPois or {}) then return end
+  labelPois(list)
+  S.poiLabeledList = list
+end
+
+local function installPoiWrap()
+  local rp = gameplay_rawPois
+  if type(rp) ~= 'table' or rp.mwfWrapped or type(rp.getRawPoiListByLevel) ~= 'function' then return end
+  local orig = rp.getRawPoiListByLevel
+  rp.mwfWrapped = true
+  rp.getRawPoiListByLevel = function(...)
+    local list, gen = orig(...)
+    local core = mwf_core
+    if core and core.mwfLabelPois and type(list) == 'table' then pcall(core.mwfLabelPois, list) end
+    return list, gen
+  end
+  log('I', 'mwf', 'Big map: POI list getter wrapped for garage / gas station labels')
+end
+
+-- applies whenever the game builds the list itself (only helps if our extension is called after the ones that add the POIs; the
+-- tick below does not depend on that order)
+function M.onGetRawPoiListForLevel(levelIdentifier, elements)
+  if S.rls and S.rls.active then return end
+  labelPois(elements)
+end
+
+-- the big map only knows these POIs once the level has loaded: work out the pit stops, then make the game rebuild its POI list (the
+-- wrapped getter above labels whatever it hands out, including every list the big map builds when it opens)
+function M.onClientPostStartMission() S.poiLabelTimer, S.poiLabelsDone, S.poiLabelLevel, S.poiLabeledList = 0, false, nil, nil end
+
+local function relabel(levelId, rebuild)
+  if rebuild then pcall(function() gameplay_rawPois.clear() end) end
+  local ok, list = pcall(function() return gameplay_rawPois.getRawPoiListByLevel(levelId) end)
+  if not ok or type(list) ~= 'table' then return 0 end
+  return labelPois(list)
+end
+
+local function tickPoiLabels(dtReal)
+  installPoiWrap()
+  if not S.poiLabelTimer then return end
+  S.poiLabelTimer = S.poiLabelTimer + dtReal
+  if not S.poiLabelsDone then
+    if S.poiLabelTimer < 4 or not S.optionsLoaded then return end
+    S.poiLabelsDone = true
+    if not S.options.fallbackPits or (S.rls and S.rls.active) then return end
+    loadGasStations()
+    local levelId = getCurrentLevelIdentifier()
+    if not levelId or not next(S.fallbackPois) then return end
+    S.poiLabelLevel, S.poiLabelCheck = levelId, S.poiLabelTimer
+    local n = 0
+    for _ in pairs(S.fallbackPois) do n = n + 1 end
+    relabel(levelId, true)
+    log('I', 'mwf', 'Big map: labelling ' .. n .. ' made-up garages and gas stations')
+    return
+  end
+end
+
+MWF.pits = {tickPoiLabels = tickPoiLabels, checkGasStations = checkGasStations, loadGasStations = loadGasStations, scheduleTransfer = scheduleTransfer, tickTransfer = tickTransfer}
 
 return M

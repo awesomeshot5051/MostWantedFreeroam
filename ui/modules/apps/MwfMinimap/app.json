@@ -1,0 +1,21 @@
+{
+  "domElement": "<mwf-minimap></mwf-minimap>",
+  "name": "Most Wanted Freeroam: Minimap",
+  "types": [
+    "ui.apps.categories.vehicle_info",
+    "ui.apps.categories.info"
+  ],
+  "description": "The game's minimap with a Most Wanted heat ring around it: ten segments that fill with your bounty, the heat number with a flame, and a flashing red / blue ring while the police can see you. Use it instead of the stock Navigation app.",
+  "css": {
+    "height": "350px",
+    "width": "300px",
+    "left": "5px",
+    "bottom": "5px"
+  },
+  "author": "Most Wanted Freeroam (based on the BeamNG Navigation app)",
+  "version": "1",
+  "directive": "mwfMinimap",
+  "vue": true,
+  "category": "Gameplay",
+  "isAuxiliary": false
+}

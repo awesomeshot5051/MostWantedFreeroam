@@ -61,6 +61,14 @@ local function canPay(amount)
   return ok and res == true
 end
 
+-- shows a charge to the player: a toast, and a red "-$N" line in the bounty feed (it is real career money, not bounty)
+local function announce(amount, what)
+  if not (amount and amount > 0) then return end
+  table.insert(S.feed, 1, {text = what .. " (career money)", amount = amount, mult = 1, neg = true, t = os.clock()})
+  while #S.feed > CFG.FEED_LINES do table.remove(S.feed) end
+  MWF.util.toast("info", "Crash Breaker: " .. what, string.format("-$%d from your career money.", math.floor(amount + 0.5)), 3500)
+end
+
 local function charge(amount, label)
   if amount <= 0 then return true end
   local ok, res = pcall(function()
@@ -176,14 +184,73 @@ local function payEscape(bounty, heat)
   addPoints(heat or 1)
 end
 
+-- a small real-money payout plus milestone points, for achievements that carry a reward (see data/achievements.lua)
+local function payAchievement(money, pts, label)
+  if not S.rls.active then return end
+  if money and money > 0 then
+    local ok, res = pcall(function()
+      return overhaul_career_economy_payment.reward({money = {amount = money}}, {category = "reward", label = "Most Wanted: " .. label})
+    end)
+    if not (ok and res ~= false) then log('W', 'mwf', 'RLS achievement payout failed: ' .. tostring(res)) end
+  end
+  addPoints(pts or 0)
+end
+
 local function active() return S.rls.active end
 
 -- the cached cost is what the HUD and the "reset ready" check use; the real charge recomputes it
 local function resetCost() return S.rls.resetCost end
 
+-- ===== repairs at the RLS computer during a chase =====
+-- Two things used to end the chase: (1) a timed insurance repair (60 s) takes the car out of the world, (2) an instant repair respawns it, and
+-- both look like "you got rid of your car" to the chase. So, while a chase is on in an RLS career:
+--   * the chase is frozen (like the garage pause) while the RLS computer is open, so the pursuit cannot run out while you pay and wait;
+--   * the repair is made instant (the quote and the price stay exactly what RLS showed; the insurance claim, deductible and driver score
+--     are still handled by RLS), and session.lua carries the chase over to the respawned car.
+local COMPUTER_POLL, REPAIR_GRACE = 0.25, 25 -- s
+
+local function computerOpen()
+  local ok, name = pcall(function() return require("overhaul/lib/career/context").currentUiRouteName() end)
+  return ok and type(name) == 'string' and name:find("^overhaul%.computer") ~= nil
+end
+
+function M.rlsRepairStarting(opt)
+  if not (S.session and S.rls and S.rls.active) then return end
+  if type(opt) == 'table' and (tonumber(opt.repairTime) or 0) > 0 then
+    log('I', 'mwf', string.format('RLS repair during a chase: repair time %s s made instant so the chase keeps going', tostring(opt.repairTime)))
+    opt.repairTime = 0
+  end
+  S.rlsRepairUntil = os.clock() + REPAIR_GRACE
+end
+
+local function installRepairWatch()
+  local ins = overhaul_career_repair_insurance
+  if type(ins) ~= 'table' or ins.mwfWrapped or type(ins.startRepairInGarage) ~= 'function' then return end
+  ins.mwfWrapped = true
+  local function wrap(orig)
+    return function(invVehId, opt, ...)
+      if mwf_core and mwf_core.rlsRepairStarting then pcall(mwf_core.rlsRepairStarting, opt) end
+      return orig(invVehId, opt, ...)
+    end
+  end
+  ins.startRepairInGarage = wrap(ins.startRepairInGarage)
+  if type(ins.startRepairInPlace) == 'function' then ins.startRepairInPlace = wrap(ins.startRepairInPlace) end
+  log('I', 'mwf', 'RLS: repairs are watched (a repair during a chase is instant and the chase carries on)')
+end
+
 local function tick(dtReal)
+  S.rls.pollT = (S.rls.pollT or 0) + dtReal
+  if S.rls.pollT >= COMPUTER_POLL then
+    S.rls.pollT = 0
+    local open = S.session ~= nil and S.rls.active == true and computerOpen()
+    if open ~= (S.rlsComputer == true) then
+      S.rlsComputer = open
+      MWF.garage.applyGaragePause()
+    end
+  end
   S.rls.checkT = S.rls.checkT + dtReal
   if S.rls.checkT < 1 then return end
+  if S.rls.active then pcall(installRepairWatch) end
   S.rls.checkT = 0
   local was = S.rls.active
   S.rls.active = detect()
@@ -191,7 +258,7 @@ local function tick(dtReal)
   if S.rls.active and S.session then S.rls.resetCost = computeResetCost() end
 end
 
-MWF.rls = {active = active, resetCost = resetCost, computeResetCost = computeResetCost, canPay = canPay, charge = charge,
-  balance = balance, payEscape = payEscape, payoutFor = payoutFor, payoutPct = payoutPct, level = level, points = points, tick = tick}
+MWF.rls = {announce = announce, active = active, resetCost = resetCost, computeResetCost = computeResetCost, canPay = canPay, charge = charge,
+  balance = balance, payEscape = payEscape, payAchievement = payAchievement, payoutFor = payoutFor, payoutPct = payoutPct, level = level, points = points, tick = tick}
 
 return M

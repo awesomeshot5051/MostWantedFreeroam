@@ -3,6 +3,8 @@
 --   fmt  : how the progress is shown ("dist" = the stat is in metres, shown in km or miles; "money"; "time" = seconds; default plain number)
 --   dist : {metric = km, imperial = miles}: the goal in the player's unit system (the game's "uiUnitLength" setting). The description
 --          is a format string: first %s = that distance, second %s = the speed from `speed` ({metric = "200 km/h", imperial = "125 mph"}).
+--   reward : optional {bounty, money, points}: paid when it unlocks. bounty = added to the chase bounty (scaled down in RLS); money and
+--            points are RLS only: real money, and Most Wanted Criminal milestone points.
 local LIST = {
   -- first steps
   {id = "firstChase",  name = "You can run but you can't hide!",  desc = "Trigger a pursuit",                               stat = "chases",       goal = 1},
@@ -35,6 +37,11 @@ local LIST = {
   {id = "drift",       name = "Tokyo Drift, Local Edition",       desc = "Drift %s during chases",                        stat = "driftMeters",  goal = 5000, dist = {metric = 5, imperial = 3}, fmt = "dist"},
   {id = "wrongWay",    name = "Wrong Way Wallace",                desc = "Drive %s the wrong way during chases",          stat = "wrongWayMeters", goal = 2000, dist = {metric = 2, imperial = 1}, fmt = "dist"},
   {id = "speeding",    name = "Pedal to the Metal",               desc = "Drive %s above %s during chases",        stat = "speedingMeters", goal = 20000, dist = {metric = 20, imperial = 12}, speed = {metric = "200 km/h", imperial = "125 mph"}, fmt = "dist"},
+  {id = "missile60",   name = "Dodged a Missile",                 desc = "Near-miss a police car charging straight at you at 60 mph (97 km/h) or more", stat = "missileDodgeMph", goal = 60},
+  {id = "missile100",  name = "Really Dodged a Missile",          desc = "Near-miss a police car charging straight at you at 100 mph (160 km/h) or more", stat = "missileDodgeMph", goal = 100},
+  {id = "nearMiss100", name = "Living on the Edge",               desc = "Get 100 near misses during chases",               stat = "nearMisses",   goal = 100, reward = {bounty = 2500, money = 300, points = 3}},
+  {id = "paint100",    name = "Nearly missing the near miss",     desc = "Trade paint 100 times during chases",             stat = "paintTrades",  goal = 100, reward = {bounty = 2500, money = 300, points = 3}},
+  {id = "dangerZone",  name = "Highway to the Danger Zone",       desc = "Stay above 100 mph (160 km/h) for 3 minutes in a row", stat = "fastSeconds", goal = 180, fmt = "time", reward = {bounty = 5000, money = 500, points = 5}},
   {id = "resets10",    name = "Nine Lives (Plus One)",            desc = "Use the Crash Breaker 10 times",                  stat = "resets",       goal = 10},
   -- pit stops
   {id = "firstCar",    name = "Trade-In Value: Mostly Smoke",     desc = "Buy a car at a garage during a chase",            stat = "carsBought",   goal = 1},
