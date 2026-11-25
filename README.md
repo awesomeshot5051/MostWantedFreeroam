@@ -1,4 +1,4 @@
-# Most Wanted Freeroam  (version 2.0.0)
+# Most Wanted Freeroam  (version 2.1.0)
 
 Turns the vanilla police chase in BeamNG freeroam into a continuous, escalating **Most Wanted**-style pursuit:
 ten heat levels, a bounty, a "reset bar" you spend on weapons and vehicle resets, pit stops at gas stations and

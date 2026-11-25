@@ -1,4 +1,4 @@
-# Most Wanted Freeroam  (version 2.0.0)
+# Most Wanted Freeroam  (version 2.1.0)
 
 **Turn BeamNG's police chases into a Most Wanted-style pursuit that keeps escalating.**
 
@@ -256,6 +256,10 @@ Inspired by the **Most Wanted Mission** mod; this is a standalone rewrite that d
 ## What's new
 
 The technical details of every change are in the changelog on GitHub (CHANGELOG.md in the mod's repository).
+
+### 2.1.0
+**Bug fixes**
+- Repairing from the pause menu now counts: it uses up a slot of the reset bar (and the usual reset cost), and if you can't pay for it the chase ends. Not applied in RLS careers.
 
 ### 2.0.0
 **New features**

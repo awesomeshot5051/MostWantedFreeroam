@@ -54,29 +54,36 @@ local function tickBreaker(dtReal)
   end
 end
 
+-- Takes the price of one reset: a slot of the reset bar plus the bounty / RLS cost. Returns false (nothing taken) if it cannot be paid.
+local function payForReset(label)
+  local cost = S.rls.active and MWF.rls.computeResetCost() or MWF.util.resetCost()
+  local affordable = S.rls.active and MWF.rls.canPay(cost) or (not S.rls.active and MWF.garage.wallet() >= cost)
+  if not (MWF.util.canSpend() and affordable) then return false, cost end
+  S.bar = math.max(0, S.bar - CFG.SLOT_COST)
+  if cost > 0 then
+    if S.rls.active then
+      local private = S.options.rlsResetPayment == "private"
+      MWF.rls.charge(cost, "Most Wanted: " .. label .. " (" .. (private and "private" or "insurance claim") .. ")")
+      MWF.rls.announce(cost, private and "private repair" or "insurance claim")
+    else
+      MWF.garage.spendBounty(cost, label)
+    end
+  else
+    -- free at low heat, but the bar refills slowly for a while afterwards
+    S.regenSlowUntil = os.clock() + CFG.FREE_RESET_SLOW_TIME
+  end
+  MWF.achievements.add('resets', 1)
+  return true, cost
+end
+
 -- Replaces vanilla resetGameplay() while a chase is on. The R key goes through here.
 local function chaseResetGameplay(pid, source)
   if S.breaker or os.clock() < S.breakerLockUntil then return end
   if pid == -1 then return end -- reset-all is never allowed mid-chase
-  local cost = S.rls.active and MWF.rls.computeResetCost() or MWF.util.resetCost()
-  local affordable = S.rls.active and MWF.rls.canPay(cost) or (not S.rls.active and MWF.garage.wallet() >= cost)
-  if MWF.util.canSpend() and affordable then
-    S.bar = math.max(0, S.bar - CFG.SLOT_COST)
-    if cost > 0 then
-      if S.rls.active then
-        local private = S.options.rlsResetPayment == "private"
-        MWF.rls.charge(cost, "Most Wanted: Crash Breaker reset (" .. (private and "private" or "insurance claim") .. ")")
-        MWF.rls.announce(cost, private and "private repair" or "insurance claim")
-      else
-        MWF.garage.spendBounty(cost, "Crash Breaker reset")
-      end
-    else
-      -- free at low heat, but the bar refills slowly for a while afterwards
-      S.regenSlowUntil = os.clock() + CFG.FREE_RESET_SLOW_TIME
-    end
+  local ok, cost = payForReset("Crash Breaker reset")
+  if ok then
     S.breakerLockUntil = os.clock() + BREAKER_DURATION + 2.5
     log('I', 'mwf', 'Reset request accepted from ' .. tostring(source or 'reset key'))
-    MWF.achievements.add('resets', 1)
     startBreaker(pid)
   else
     if os.clock() - (S.lastLockedToast or -10) > 1.5 then
@@ -85,6 +92,22 @@ local function chaseResetGameplay(pid, source)
         or "Not enough reset bar. Teleport to road is free.", 2200)
     end
   end
+end
+
+-- Pause menu "Repair": the car is put back on the road where it stands, which is a reset. It costs what a Crash Breaker reset costs
+-- (a slot of the bar + bounty); if that cannot be paid the chase is over. Returns true when the chase carries on.
+local function payPauseRepair()
+  local ok = payForReset("Pause menu repair")
+  if ok then
+    local veh = getObjectByID(be:getPlayerVehicleID(0) or -1)
+    if veh then
+      veh:queueLuaCommand("if extensions.mwfWeapons then extensions.mwfWeapons.resetRounds() end")
+      local a = S.ammoByVeh[veh:getID()]
+      if a then for _, e in pairs(a) do e.rounds = 0 end end
+    end
+    MWF.util.toast("warning", "Repaired", "The repair used up a slot of the reset bar.", 3000)
+  end
+  return ok
 end
 
 local function installResetWrapper()
@@ -98,6 +121,6 @@ local function restoreResetWrapper()
   S.origReset = nil
 end
 
-MWF.breaker = {cancelBreaker = cancelBreaker, chaseResetGameplay = chaseResetGameplay, installResetWrapper = installResetWrapper, restoreResetWrapper = restoreResetWrapper, tickBreaker = tickBreaker}
+MWF.breaker = {payPauseRepair = payPauseRepair, cancelBreaker = cancelBreaker, chaseResetGameplay = chaseResetGameplay, installResetWrapper = installResetWrapper, restoreResetWrapper = restoreResetWrapper, tickBreaker = tickBreaker}
 
 return M

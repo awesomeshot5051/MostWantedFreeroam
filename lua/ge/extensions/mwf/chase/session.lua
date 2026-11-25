@@ -114,6 +114,22 @@ function M.notePauseAction()
   if S.session then S.pauseActionAt = os.clock() end
 end
 
+-- The pause menu's Repair button teleports the car in place with spawn.safeTeleport(). While a pause menu action runs, safeTeleport is
+-- wrapped so that call is noticed: in a normal game it costs a reset (bar slot + bounty) or ends the chase; RLS is left alone, because
+-- an insurance claim repair must not end the chase.
+function M.pauseRepairDone()
+  if not S.session or S.rls.active then return end
+  if S.breaker or S.inGas or S.inGarage or S.transfer or S.foot.active then return end
+  S.pauseActionAt = nil -- this repair is handled here, so onVehicleResetted must not treat it as a pause menu reset as well
+  if MWF.breaker.payPauseRepair() then
+    log('I', 'mwf', 'Pause menu repair paid for with the reset bar: chase goes on')
+  else
+    log('I', 'mwf', 'Pause menu repair with no reset bar / money left: chase over')
+    MWF.util.toast("warning", "Chase over", "Repairing from the pause menu without a full reset bar counts as running away.", 4000)
+    endSession('busted')
+  end
+end
+
 local function installPauseWatch()
   local ext = ui_pause_providers_vehicleTabInteractions
   if type(ext) ~= 'table' or ext.mwfWrapped or type(ext.executeVehicleTabInteractionAction) ~= 'function' then return end
@@ -121,9 +137,21 @@ local function installPauseWatch()
   local orig = ext.executeVehicleTabInteractionAction
   ext.executeVehicleTabInteractionAction = function(...)
     if mwf_core and mwf_core.notePauseAction then mwf_core.notePauseAction() end
-    return orig(...)
+    local sp = spawn
+    local origTeleport = type(sp) == 'table' and S.session and sp.safeTeleport or nil
+    if origTeleport then
+      sp.safeTeleport = function(veh, ...)
+        local r1, r2, r3 = origTeleport(veh, ...)
+        if veh and veh.getID and veh:getID() == be:getPlayerVehicleID(0) and mwf_core and mwf_core.pauseRepairDone then pcall(mwf_core.pauseRepairDone) end
+        return r1, r2, r3
+      end
+    end
+    local ok, a, b, c = pcall(orig, ...)
+    if origTeleport and sp.safeTeleport ~= origTeleport then sp.safeTeleport = origTeleport end
+    if not ok then error(a) end
+    return a, b, c
   end
-  log('I', 'mwf', 'Pause menu: vehicle actions watched (a pause menu reset ends the chase)')
+  log('I', 'mwf', 'Pause menu: vehicle actions watched (a pause menu reset ends the chase, a repair costs a reset)')
 end
 
 function M.onVehicleResetted(vehId)

@@ -8,6 +8,18 @@ Versioning: `major.minor.patch`. The major number only changes when the maintain
 File paths are relative to the repository root; `mwf/` stands for `lua/ge/extensions/mwf/`, and `ui/` for
 `ui/ui-vue/mods/most_wanted_freeroam/`.
 
+## 2.1.0
+
+### Added
+- **`heat(n)` console command** (`core.lua`, registered in `onExtensionLoaded` as the global `heat`; also `mwf_core.setHeat(n)`): sets the heat of the running chase to 1-10 by moving
+  `S.session.bounty` to `util.heatThreshold(n)`, so the next `updatePursuit` frame applies the units, tuning and toast. Needs a chase; prints a message otherwise.
+
+### Fixed
+- **Pause menu Repair did not stop the chase** (`chase/session.lua`, `chase/breaker.lua`): Repair calls `spawn.safeTeleport()` on the car (`tryRepairVehicleHere`), not a reset, so neither the
+  reset hook nor the 2.0.0 pause-menu-reset check saw it. `installPauseWatch()` now also wraps `spawn.safeTeleport` for the duration of each pause menu action; a teleport of the player's car calls
+  `mwf_core.pauseRepairDone()`, which charges `breaker.payPauseRepair()` (a bar slot + the normal reset cost, ammo emptied) or, if that cannot be paid, ends the chase as `busted`. Skipped in an
+  RLS career (an insurance repair must not end the chase), at pit stops, in the garage, during a transfer and on foot. The payment code was split out of `chaseResetGameplay` into `payForReset()`.
+
 ## 2.0.0
 
 Everything since the 1.0.0 release, as one release.

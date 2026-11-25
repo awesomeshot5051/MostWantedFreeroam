@@ -42,7 +42,20 @@ function M.getBar() return S.bar, CFG.BAR_MAX, CFG.SLOTS end
 function M.getSession() return S.session end
 function M.toggleHud() S.hudVisible[0] = not S.hudVisible[0] end
 
+-- Sets the heat of the running chase (1 to MAX_HEAT) by moving the bounty to that heat's threshold; the next frame does the rest
+-- (units, tuning, toast). Needs a chase to be on. Returns a message so it prints in the console.
+function M.setHeat(n)
+  n = math.floor(tonumber(n) or 0)
+  if not S.session then return "No chase is on. Start one first." end
+  if n < 1 or n > CFG.MAX_HEAT then return string.format("Heat must be 1 to %d.", CFG.MAX_HEAT) end
+  S.session.bounty = MWF.util.heatThreshold(n)
+  log('I', 'mwf', 'Heat set to ' .. n .. ' from the console')
+  return "Heat set to " .. n
+end
+
 function M.onExtensionLoaded()
+  -- short console command: type  heat(5)  in the game console (GameEngine / GE-Lua)
+  rawset(_G, 'heat', function(n) local r = M.setHeat(n) print(r) return r end)
   MWF.options.loadOptions()
   MWF.achievements.load()
   pcall(MWF.weapons.installWeaponPanelHooks)
